@@ -55,7 +55,7 @@ const App: FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [isDarkTheme, setIsDarkTheme] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -158,8 +158,18 @@ const App: FC = () => {
   };
 
   const toggleRecording = async () => {
+    // Cancel any ongoing speech synthesis
+    window.speechSynthesis.cancel();
+
     if (!isRecording) {
       try {
+        // Stop any existing stream
+        if (mediaRecorderRef.current) {
+          mediaRecorderRef.current.stop();
+          const tracks = mediaRecorderRef.current.stream.getTracks();
+          tracks.forEach(track => track.stop());
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
@@ -179,6 +189,7 @@ const App: FC = () => {
         setIsRecording(true);
       } catch (error) {
         addMessage('Unable to access microphone. Please check permissions.', 'bot');
+        setIsRecording(false);
       }
     } else {
       mediaRecorderRef.current?.stop();
@@ -190,8 +201,6 @@ const App: FC = () => {
     const formData = new FormData();
     formData.append('file', audioBlob, 'recording.mp3');
 
-    addMessage('Assistant is processing your voice message...', 'bot', true);
-
     try {
       const response = await fetch('http://localhost:8000/voice_chat', {
         method: 'POST',
@@ -201,25 +210,66 @@ const App: FC = () => {
       if (!response.ok) throw new Error('Voice processing failed');
 
       const data = await response.json();
-      setMessages(prev => prev.filter(msg => !msg.isTyping));
 
-      // Add the text response as a chat message
-      addMessage(data.text_response, 'bot');
-
-      // Use browser TTS to speak the response
-      if (data.text_response) {
-        const utterance = new window.SpeechSynthesisUtterance(data.text_response);
-        window.speechSynthesis.speak(utterance);
+      // First add the transcribed user message in blue
+      if (data.transcription) {
+        addMessage(data.transcription, 'user');
+        // Then show that the assistant is processing
+        addMessage('Assistant is analyzing your message...', 'bot', true);
       }
+
+      // Small delay to show the processing message
+      setTimeout(() => {
+        // Remove the processing message
+        setMessages(prev => prev.filter(msg => !msg.isTyping));
+        
+        // Add the bot's response
+        if (data.text_response) {
+          addMessage(data.text_response, 'bot');
+          // Use browser TTS to speak the response
+          const utterance = new window.SpeechSynthesisUtterance(data.text_response);
+          window.speechSynthesis.speak(utterance);
+        }
+      }, 1000); // 1 second delay for natural conversation flow
     } catch (error) {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       addMessage('I apologize, but there was an issue processing your voice message. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).', 'bot');
     }
   };
 
-  const quickQuestion = (question: string) => {
-    setInputMessage(question);
-    sendMessage();
+  const quickQuestion = async (question: string) => {
+    // Add the question to messages immediately
+    addMessage(question, 'user');
+    addMessage('Assistant is analyzing your situation...', 'bot', true);
+
+    try {
+      const response = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: question })
+      });
+
+      const data = await response.json();
+      
+      // Remove typing message
+      setMessages(prev => prev.filter(msg => !msg.isTyping));
+
+      if (data.response.type === 'steps') {
+        addMessage(
+          <ul>
+            {data.response.content.map((step: string, idx: number) => (
+              <li key={idx}>{step}</li>
+            ))}
+          </ul>,
+          'bot'
+        );
+      } else {
+        addMessage(data.response.content, 'bot');
+      }
+    } catch (error) {
+      setMessages(prev => prev.filter(msg => !msg.isTyping));
+      addMessage("I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).", 'bot');
+    }
   };
 
   const handleLanguageChange = (e: ChangeEvent<HTMLSelectElement>) => {
