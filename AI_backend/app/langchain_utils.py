@@ -1,15 +1,13 @@
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from groq import Groq, APIError
-from gtts import gTTS
-from io import BytesIO
 import tempfile
 import logging
 import os
 import re
 from dotenv import load_dotenv
+from .voice_config import speech_to_text, text_to_speech
 
 # Load environment variables
 load_dotenv()
@@ -18,18 +16,17 @@ load_dotenv()
 logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
 logger = logging.getLogger(__name__)
 
-# Set up Groq API key
-groq_api_key = os.getenv('GROQ_API_KEY')
-if not groq_api_key:
-    logger.error("GROQ_API_KEY not set in environment variables.")
-    raise ValueError("GROQ_API_KEY environment variable is required")
+# Set up OpenAI API key and model
+openai_api_key = os.getenv('OPENAI_API_KEY')
+if not openai_api_key:
+    logger.error("OPENAI_API_KEY not set in environment variables.")
+    raise ValueError("OPENAI_API_KEY environment variable is required")
 
-# Initialize Groq clients
+# Initialize ChatOpenAI model
 try:
-    groq_client = Groq(api_key=groq_api_key)
-    model = ChatGroq(
-        model=os.getenv('MODEL_NAME', 'meta-llama/llama-4-scout-17b-16e-instruct'),
-        groq_api_key=groq_api_key
+    model = ChatOpenAI(
+        model=os.getenv('MODEL_NAME', 'gpt-3.5-turbo'),
+        openai_api_key=openai_api_key
     )
 except Exception as e:
     logger.error(f"Failed to initialize Groq clients: {e}")
@@ -130,29 +127,6 @@ def format_response_as_list(response_text):
             return {"type": "text", "content": "..."}
         return {"type": "text", "content": final_text}
 
-def speech_to_text(file_content, temp_path):
-    """Transcribes audio file using Groq Whisper API."""
-    logger.info("Starting audio transcription...")
-    try:
-        with open(temp_path, "rb") as audio_file_to_transcribe:
-            transcription_response = groq_client.audio.transcriptions.create(
-                file=(temp_path, audio_file_to_transcribe.read()),
-                model="whisper-large-v3",
-                response_format="text"
-            )
-        transcription = transcription_response
-        logger.info(f"Transcription successful: '{transcription}'")
-        if not transcription or transcription.strip() == "":
-            logger.warning("Transcription resulted in empty text.")
-            return "I didn't catch that. Could you please speak clearly?"
-        return transcription
-    except APIError as e:
-        logger.error(f"Groq API Error during transcription: {e}", exc_info=True)
-        raise
-    except Exception as e:
-        logger.error(f"Error during transcription: {e}", exc_info=True)
-        raise
-
 def get_ai_response(transcription: str):
     """Gets AI response from LangGraph based on transcription."""
     logger.info(f"Invoking LangGraph with transcription: '{transcription}'")
@@ -174,16 +148,4 @@ def get_ai_response(transcription: str):
         logger.error(f"Error invoking LangGraph: {e}", exc_info=True)
         raise
 
-def text_to_speech(text: str):
-    """Converts text to speech using gTTS and returns audio bytes."""
-    logger.info(f"Generating TTS audio for: '{text}'")
-    try:
-        tts = gTTS(text=text, lang='en', slow=False)
-        audio_buffer = BytesIO()
-        tts.write_to_fp(audio_buffer)
-        audio_buffer.seek(0)
-        logger.info("TTS audio generated successfully.")
-        return audio_buffer.read()
-    except Exception as e:
-        logger.error(f"Error during TTS generation: {e}", exc_info=True)
-        raise 
+ 

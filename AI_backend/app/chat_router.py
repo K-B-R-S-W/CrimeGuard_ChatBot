@@ -21,6 +21,7 @@ from AI_backend.app.langchain_utils import (
     format_response_as_list,
     graph,
 )
+from AI_backend.app.db_utils import save_chat_interaction
 from langchain_core.messages import HumanMessage
 
 # Setup logging
@@ -46,8 +47,22 @@ async def voice_chat(file: UploadFile = File(...)):
         # Get AI response
         text_response = get_ai_response(transcription)
 
-        # Return only the text response as JSON
-        return JSONResponse({"text_response": text_response})
+        # Save the voice interaction to MongoDB
+        try:
+            save_chat_interaction(
+                user_message=transcription,
+                bot_response=text_response,
+                message_type='voice'
+            )
+            logger.info("Voice interaction saved to MongoDB")
+        except Exception as e:
+            logger.error(f"Failed to save voice interaction to MongoDB: {e}")
+
+        # Return both transcription and response as JSON
+        return JSONResponse({
+            "transcription": transcription,
+            "text_response": text_response
+        })
     except Exception as e:
         logger.error(f"Error during voice chat processing: {e}", exc_info=True)
         return JSONResponse(
@@ -87,6 +102,13 @@ async def chat(request: Request):
         logger.info(f"Raw response from graph: {raw_response}")
         formatted_response = format_response_as_list(raw_response)
         logger.info(f"Formatted response for /chat: {formatted_response}")
+
+        # Save the interaction to MongoDB
+        save_chat_interaction(
+            user_message=user_input,
+            bot_response=raw_response,
+            message_type='text'
+        )
 
         return {"response": formatted_response}
 
