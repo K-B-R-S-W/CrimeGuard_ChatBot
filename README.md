@@ -8,10 +8,47 @@ This project is an AI-powered emergency assistant for Sri Lanka, featuring a Fas
 
 ```
 Chat_bot_FYP/
-├── AI_backend/         # FastAPI backend (Python)
-│   └── app/
-├── Frontend/           # React frontend (TypeScript)
+├── AI_backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── chat_router.py        
+│   │   ├── langchain_utils.py    
+│   │   └── voice_config.py       
+│   ├── main.py                   
+│   ├── requirements.txt          
+│   └── .env                      
+└── Frontend/                      
+    ├── public/
+    │   ├── favicon.png           
+    │   └── index.html           
+    ├── src/
+    │   ├── @assets/             
+    │   │   ├── Crimegurd.png    
+    │   │   └── microphone.gif    
+    │   ├── Css/
+    │   │   ├── App.css          
+    │   │   └── index.css        
+    │   ├── App.tsx              
+    │   ├── index.tsx            
+    │   ├── images.d.ts          
+    │   └── reportWebVitals.ts   
+    ├── package.json             
+    └── tsconfig.json            
 ```
+
+### Key Components:
+
+- **Backend (`AI_backend/`):**
+  - FastAPI server with OpenAI integration
+  - MongoDB connection for history storage
+  - Voice processing with Whisper and gTTS
+  - Environment-based configuration
+
+- **Frontend (`Frontend/`):**
+  - React TypeScript application
+  - Real-time chat interface
+  - Voice chat capabilities
+  - Responsive design with custom styling
 
 ---
 
@@ -19,6 +56,20 @@ Chat_bot_FYP/
 
 - **Python 3.8+** (for backend)
 - **Node.js 16+ & npm** (for frontend)
+- **MongoDB** (for chat history storage)
+  - MongoDB Atlas account or local MongoDB server
+  - Connection string for database access
+
+---
+
+## Features
+
+- Chatbot interface with real-time responses using OpenAI's GPT-3.5-turbo model
+- Voice chat capability with speech-to-text and text-to-speech
+- Memory retention across conversations
+- MongoDB integration for persistent chat history
+- Separate handling for text and voice chat history
+- Fast response times and improved reliability
 
 ---
 
@@ -39,16 +90,20 @@ Chat_bot_FYP/
    ```
 
 3. **Install dependencies:**
-   > **Note:** Create a `requirements.txt` file with the following (inferred from code):
+   The project includes a `requirements.txt` file with all necessary dependencies:
    ```
-   fastapi
-   uvicorn
-   python-dotenv
-   langchain
-   langchain_groq
-   langgraph
-   groq
-   gtts
+   fastapi>=0.68.0
+   uvicorn>=0.15.0
+   python-dotenv>=0.19.0
+   langchain>=0.1.0
+   langchain-openai>=0.0.2
+   langchain-core>=0.1.0
+   langgraph>=0.0.15
+   openai>=1.0.0
+   gTTS>=2.3.1
+   python-multipart>=0.0.6
+   requests>=2.31.0
+   pymongo>=4.6.0
    ```
    Then run:
    ```sh
@@ -58,11 +113,23 @@ Chat_bot_FYP/
 4. **Environment Variables:**
    - Create a `.env` file in `AI_backend/` with the following variables:
      ```env
-     GROQ_API_KEY=your_groq_api_key_here
-     MODEL_NAME=meta-llama/llama-4-scout-17b-16e-instruct  # or your preferred model
-     LOG_LEVEL=INFO
+     # OpenAI Configuration
+     OPENAI_API_KEY=your_openai_api_key_here
+     
+     # Server Configuration
      PORT=8000
      HOST=0.0.0.0
+     
+     # Model Configuration
+     MODEL_NAME=gpt-3.5-turbo     # Chat model
+     model=whisper-1              # Voice transcription model
+     
+     # Logging Configuration
+     LOG_LEVEL=INFO
+     
+     # MongoDB Configuration
+     MONGODB_URI=your_mongodb_connection_string
+     MONGO_DB_NAME=User_History
      ```
 
 5. **Run the backend server:**
@@ -103,7 +170,14 @@ Chat_bot_FYP/
 
 ## Notes
 
-- **API Keys:** You must obtain a valid `GROQ_API_KEY` for the backend to function.
+- **API Keys:** You must obtain a valid `OPENAI_API_KEY` for the backend to function. This key is used for both chat (GPT-3.5-turbo) and voice transcription (Whisper) features.
+- **Voice Processing:** The system uses:
+  - OpenAI Whisper for speech-to-text conversion
+  - Google TTS (gTTS) for text-to-speech generation
+- **Database Integration:**
+  - MongoDB for storing chat and voice interaction history
+  - Separate collections for text (`chat_history`) and voice (`voice_history`) interactions
+  - Automatic timestamp and message type tracking
 - **Dependencies:** If you add new Python packages, update `requirements.txt` accordingly.
 - **Production:** For deployment, use production-ready servers (e.g., `uvicorn` with `--reload` off, or behind a reverse proxy).
 
@@ -113,6 +187,13 @@ Chat_bot_FYP/
 
 - If you encounter CORS issues, ensure both servers are running on allowed origins (see backend CORS config).
 - For environment variable errors, double-check your `.env` file in the backend directory.
+- For MongoDB connection issues:
+  - Verify your MongoDB connection string is correct
+  - Ensure your IP address is whitelisted in MongoDB Atlas
+  - Check MongoDB service is running if using local installation
+- For voice chat issues:
+  - Ensure microphone permissions are granted in your browser
+  - Check that both text and voice history are being saved in MongoDB
 
 ---
 
