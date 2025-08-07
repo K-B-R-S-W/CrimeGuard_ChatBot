@@ -15,7 +15,8 @@ Chat_bot_FYP/
 │   │   ├── langchain_utils.py    
 │   │   └── voice_config.py       
 │   ├── main.py                   
-│   ├── requirements.txt          
+│   ├── requirements.txt      
+│   ├── test_mongo_connection.py
 │   └── .env                      
 └── Frontend/                      
     ├── public/
@@ -66,10 +67,19 @@ Chat_bot_FYP/
 
 - Chatbot interface with real-time responses using OpenAI's GPT-3.5-turbo model
 - Voice chat capability with speech-to-text and text-to-speech
-- Memory retention across conversations
+- Memory retention across conversations using LangChain and LangGraph
 - MongoDB integration for persistent chat history
 - Separate handling for text and voice chat history
 - Fast response times and improved reliability
+- Multilingual support (English, Sinhala, Tamil)
+- Dark/Light theme support
+- Quick emergency action buttons for common scenarios:
+  - Fire emergency
+  - Break-in situations
+  - Medical emergencies
+  - Police assistance
+- Responsive design with animated UI elements
+- Visual feedback for voice recording status
 
 ---
 
@@ -92,19 +102,6 @@ Chat_bot_FYP/
 3. **Install dependencies:**
    The project includes a `requirements.txt` file with all necessary dependencies:
    ```
-   fastapi>=0.68.0
-   uvicorn>=0.15.0
-   python-dotenv>=0.19.0
-   langchain>=0.1.0
-   langchain-openai>=0.0.2
-   langchain-core>=0.1.0
-   langgraph>=0.0.15
-   openai>=1.0.0
-   gTTS>=2.3.1
-   python-multipart>=0.0.6
-   requests>=2.31.0
-   pymongo>=4.6.0
-   ```
    Then run:
    ```sh
    pip install -r requirements.txt
@@ -121,8 +118,8 @@ Chat_bot_FYP/
      HOST=0.0.0.0
      
      # Model Configuration
-     MODEL_NAME=gpt-3.5-turbo     # Chat model
-     model=whisper-1              # Voice transcription model
+     MODEL_NAME=gpt-3.5-turbo     
+     model=whisper-1              
      
      # Logging Configuration
      LOG_LEVEL=INFO
@@ -178,6 +175,21 @@ Chat_bot_FYP/
   - MongoDB for storing chat and voice interaction history
   - Separate collections for text (`chat_history`) and voice (`voice_history`) interactions
   - Automatic timestamp and message type tracking
+- **Security Features:**
+  - JWT-based authentication using python-jose
+  - Password hashing with bcrypt
+  - CORS protection for API endpoints
+  - Rate limiting for API requests
+- **Localization:**
+  - Multi-language support with dynamic language switching
+  - Translations for UI elements and emergency messages
+  - Language-specific voice processing
+- **UI/UX Features:**
+  - Responsive design with mobile support
+  - Theme switching (Dark/Light mode)
+  - Visual feedback for voice recording
+  - Emergency quick action buttons
+  - Animated background elements
 - **Dependencies:** If you add new Python packages, update `requirements.txt` accordingly.
 - **Production:** For deployment, use production-ready servers (e.g., `uvicorn` with `--reload` off, or behind a reverse proxy).
 
