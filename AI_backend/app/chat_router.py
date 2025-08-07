@@ -33,17 +33,96 @@ router = APIRouter()
 
 @router.post("/voice_chat")
 async def voice_chat(file: UploadFile = File(...)):
-    logger.info("Received request for /voice_chat")
+    logger.info("=== Starting new voice chat request ===")
+    logger.info(f"Received file: {file.filename}, Content-Type: {file.content_type}")
+    
     temp_audio_path = None
     try:
-        # Create temporary file for audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
-            audio_content = file.file.read()
+        # Determine correct file extension and mime type
+        content_type = file.content_type.lower()
+        if "webm" in content_type:
+            extension = ".webm"
+        elif "mp3" in content_type:
+            extension = ".mp3"
+        elif "wav" in content_type:
+            extension = ".wav"
+        else:
+            extension = ".webm"  # Default to webm
+        
+        logger.debug(f"Using file extension: {extension}")
+        
+        # Create temporary file with proper extension
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_audio:
+            audio_content = await file.read()  # Use await for proper async file reading
+            
+            # Detailed logging of audio file
+            logger.info(f"Audio file details:")
+            logger.info(f"- Size: {len(audio_content)} bytes")
+            logger.info(f"- Content type: {content_type}")
+            logger.info(f"- Temp path: {temp_audio.name}")
+            
+            # Enhanced audio content validation
+            if len(audio_content) < 1024:  # If less than 1KB
+                logger.warning("Received audio file is very small, might be empty or corrupted")
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "The recording is too short. Please speak for at least 1-2 seconds."}
+                )
+            
+            if len(audio_content) > 25 * 1024 * 1024:  # If larger than 25MB
+                logger.warning("Received audio file is too large")
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "The recording is too long. Please keep it under 30 seconds."}
+                )
+                
             temp_audio.write(audio_content)
             temp_audio_path = temp_audio.name
 
+        # Validate content type
+        if not file.content_type.startswith('audio/'):
+            logger.warning(f"Invalid content type received: {file.content_type}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid audio format. Please try again."}
+            )
+
         # Process the audio file and get response
+        logger.info("Starting speech to text processing...")
         transcription = speech_to_text(audio_content, temp_audio_path)
+        
+        # Detailed logging of transcription results
+        logger.info("----- Transcription Results -----")
+        logger.info(f"Raw transcription: {transcription}")
+        logger.debug(f"Transcription type: {type(transcription)}")
+        logger.debug(f"Transcription length: {len(str(transcription))}")
+        
+        # Enhanced error handling and validation
+        if not transcription:
+            logger.error("Received empty transcription")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No speech detected. Please try again."}
+            )
+        
+        # Handle error messages from speech_to_text
+        if isinstance(transcription, str) and transcription.startswith(
+            ("Audio too short", "Unsupported audio format", "I didn't catch that", "Please speak")
+        ):
+            logger.warning(f"Received error message from speech_to_text: {transcription}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": transcription}
+            )
+        
+        # Ensure transcription is properly formatted
+        if not transcription or transcription.isspace():
+            logger.warning("Empty or whitespace-only transcription received")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Could not understand the audio. Please speak clearly and try again."}
+            )
+            
         # Get AI response
         text_response = get_ai_response(transcription)
 
