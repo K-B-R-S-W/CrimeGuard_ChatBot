@@ -14,9 +14,17 @@ load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.chat_router import router
 
-# Setup basic logging
-logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
+# Setup basic logging with more detailed format
+logging.basicConfig(
+    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # This ensures our config is used
+)
 logger = logging.getLogger(__name__)
+
+# Enable debug logging for all loggers
+logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger('uvicorn').setLevel(logging.INFO)
 
 app = FastAPI()
 
