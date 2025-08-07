@@ -57,6 +57,8 @@ const App: FC = () => {
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -169,24 +171,92 @@ const App: FC = () => {
           const tracks = mediaRecorderRef.current.stream.getTracks();
           tracks.forEach(track => track.stop());
         }
+        
+        // Request high-quality audio
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 44100,
+          }
+        });
+        
+        // Check supported MIME types
+        let mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported('audio/webm')) {
+          if (MediaRecorder.isTypeSupported('audio/ogg')) {
+            mimeType = 'audio/ogg';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          } else {
+            mimeType = 'audio/mp3';
+          }
+        }
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType,
+          audioBitsPerSecond: 128000
+        });
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
 
         mediaRecorder.ondataavailable = (event) => {
-          audioChunksRef.current.push(event.data);
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
         };
 
         mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+          if (audioChunksRef.current.length === 0) {
+            addMessage('No audio was recorded. Please try again.', 'bot');
+            return;
+          }
+          // Create blob with the correct mime type
+          const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+          
+          // Check if the blob is valid
+          if (audioBlob.size < 1024) {
+            addMessage('Recording was too short. Please speak for a longer duration.', 'bot');
+            return;
+          }
+          
           await sendVoiceMessage(audioBlob);
           stream.getTracks().forEach(track => track.stop());
         };
 
-        mediaRecorder.start();
+        // Request data every second and start recording
+        mediaRecorder.start(1000);
         setIsRecording(true);
+        setRecordingTime(0);
+        
+        // Start the recording timer
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingTime(prev => {
+            if (prev >= 29) { // Stop at 30 seconds
+              if (mediaRecorderRef.current?.state === 'recording') {
+                mediaRecorderRef.current.stop();
+                setIsRecording(false);
+              }
+              if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+              }
+            }
+            return prev + 1;
+          });
+        }, 1000);
+        
+        // Add a timeout to automatically stop recording after 30 seconds
+        setTimeout(() => {
+          if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+          }
+          if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+          }
+        }, 30000);
       } catch (error) {
         addMessage('Unable to access microphone. Please check permissions.', 'bot');
         setIsRecording(false);
@@ -199,7 +269,7 @@ const App: FC = () => {
 
   const sendVoiceMessage = async (audioBlob: Blob) => {
     const formData = new FormData();
-    formData.append('file', audioBlob, 'recording.mp3');
+    formData.append('file', audioBlob, 'recording.webm');
 
     try {
       const response = await fetch('http://localhost:8000/voice_chat', {
@@ -393,7 +463,7 @@ const App: FC = () => {
               onClick={toggleRecording}
             >
               <i className={`fas fa-${isRecording ? 'stop' : 'microphone'}`}></i>
-              {translations[currentLanguage].voiceBtn}
+              {isRecording ? `${recordingTime}s` : translations[currentLanguage].voiceBtn}
             </button>
           </div>
           <div className="emergency-contacts">
