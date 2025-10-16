@@ -175,9 +175,11 @@ body {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-.chat-header i {
-    margin-right: 15px;
+.chat-header-text {
     animation: pulse 2s infinite;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .language-dropdown {
