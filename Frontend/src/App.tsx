@@ -55,7 +55,6 @@ const App: FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [currentLanguage, setCurrentLanguage] = useState('en');
   const [isDarkTheme, setIsDarkTheme] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -366,40 +365,12 @@ const App: FC = () => {
 
   return (
     <>
-      {/* Intro Section */}
-      <div className="intro-section">
-        <h1>CrimeGuard Emergency Assistant</h1>
-        <p>Get immediate help in emergencies with our AI-powered assistant. We provide quick access to emergency services and vital information.</p>
-        <div className="features-row">
-          <div className="feature-card">
-            <i className="fas fa-phone-volume"></i>
-            <h3>Quick Contacts</h3>
-            <p>Instantly connect with police, ambulance, fire brigade, and hospitals.</p>
-          </div>
-          <div className="feature-card">
-            <i className="fas fa-map-marker-alt"></i>
-            <h3>Location Services</h3>
-            <p>Share your precise location to get help to you faster.</p>
-          </div>
-          <div className="feature-card">
-            <i className="fas fa-language"></i>
-            <h3>Multi-Language Support</h3>
-            <p>Communicate in Sinhala, Tamil, or English.</p>
-          </div>
-          <div className="feature-card">
-            <i className="fas fa-microphone"></i>
-            <h3>Voice Commands</h3>
-            <p>Use voice to send messages and report emergencies.</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Chatbot Section (conditionally rendered below the intro) */}
-      {isChatOpen && (
-        <div className="chat-container open">
+      {/* Chatbot Section - Always Open */}
+      <div className="chat-container open">
           <div className="chat-header">
-            <i className="fas fa-shield-alt"></i>
-            Sri Lanka Emergency Assistant
+            <span className="chat-header-text">
+              <i className="fas fa-shield-alt"></i> Sri Lanka Emergency Assistant
+            </span>
             <select
               className="language-dropdown"
               value={currentLanguage}
@@ -493,15 +464,6 @@ const App: FC = () => {
             {translations[currentLanguage].priority}
           </div>
         </div>
-      )}
-
-      {/* Chat Toggle Icon (always visible, floating) */}
-      <div
-        className="chat-toggle-icon"
-        onClick={() => setIsChatOpen(!isChatOpen)}
-      >
-        <i className={`fas fa-${isChatOpen ? 'times' : 'comment-dots'}`}></i>
-      </div>
 
       {/* Animated Background (should be behind everything) */}
       <div className="emergency-background">
