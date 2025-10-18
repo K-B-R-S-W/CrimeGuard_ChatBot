@@ -117,6 +117,28 @@ const App: FC = () => {
     });
   };
 
+  const detectLanguage = (text: string): string => {
+    // Check for Sinhala characters (Unicode range: 0D80-0DFF)
+    const sinhalaChars = (text.match(/[\u0D80-\u0DFF]/g) || []).length;
+    // Check for Tamil characters (Unicode range: 0B80-0BFF)
+    const tamilChars = (text.match(/[\u0B80-\u0BFF]/g) || []).length;
+    // Check for English/Latin characters
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    
+    const totalChars = sinhalaChars + tamilChars + englishChars;
+    
+    if (totalChars === 0) return currentLanguage; // Default to current language if no alphabet characters
+    
+    // Determine the dominant language
+    if (sinhalaChars > tamilChars && sinhalaChars > englishChars) {
+      return 'si';
+    } else if (tamilChars > sinhalaChars && tamilChars > englishChars) {
+      return 'ta';
+    } else {
+      return 'en';
+    }
+  };
+
   const addMessage = (content: string | React.ReactNode, type: 'user' | 'bot', isTyping: boolean = false, isAudio?: boolean) => {
     setMessages(prev => [...prev, { content, type, isTyping, isAudio }]);
   };
@@ -124,15 +146,23 @@ const App: FC = () => {
   const sendMessage = async () => {
     if (!inputMessage.trim()) return;
 
-    addMessage(inputMessage, 'user');
+    const userMessage = inputMessage;
+    addMessage(userMessage, 'user');
     setInputMessage('');
+    
+    // Detect language from the user's message
+    const detectedLanguage = detectLanguage(userMessage);
+    
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
     try {
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: inputMessage })
+        body: JSON.stringify({ 
+          message: userMessage,
+          language: detectedLanguage 
+        })
       });
 
       const data = await response.json();
@@ -295,9 +325,46 @@ const App: FC = () => {
         // Add the bot's response
         if (data.text_response) {
           addMessage(data.text_response, 'bot');
-          // Use browser TTS to speak the response
-          const utterance = new window.SpeechSynthesisUtterance(data.text_response);
-          window.speechSynthesis.speak(utterance);
+          
+          // Play audio response from backend if available
+          if (data.audio) {
+            try {
+              // Convert base64 audio to blob and play it
+              const audioData = atob(data.audio);
+              const arrayBuffer = new Uint8Array(audioData.length);
+              for (let i = 0; i < audioData.length; i++) {
+                arrayBuffer[i] = audioData.charCodeAt(i);
+              }
+              const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+              const audioUrl = URL.createObjectURL(blob);
+              const audio = new Audio(audioUrl);
+              
+              // Set playback speed if provided (default: 1.3x for faster speech)
+              if (data.speed) {
+                audio.playbackRate = data.speed;
+                console.log(`Playing audio at ${data.speed}x speed`);
+              }
+              
+              audio.play().catch(err => {
+                console.error('Error playing audio:', err);
+                // Fallback to browser TTS if audio playback fails
+                const utterance = new window.SpeechSynthesisUtterance(data.text_response);
+                window.speechSynthesis.speak(utterance);
+              });
+              
+              // Clean up the URL after audio finishes playing
+              audio.onended = () => URL.revokeObjectURL(audioUrl);
+            } catch (err) {
+              console.error('Error processing audio:', err);
+              // Fallback to browser TTS
+              const utterance = new window.SpeechSynthesisUtterance(data.text_response);
+              window.speechSynthesis.speak(utterance);
+            }
+          } else {
+            // Fallback to browser TTS if no audio from backend
+            const utterance = new window.SpeechSynthesisUtterance(data.text_response);
+            window.speechSynthesis.speak(utterance);
+          }
         }
       }, 1000); // 1 second delay for natural conversation flow
     } catch (error) {
@@ -309,13 +376,20 @@ const App: FC = () => {
   const quickQuestion = async (question: string) => {
     // Add the question to messages immediately
     addMessage(question, 'user');
+    
+    // Detect language from the question
+    const detectedLanguage = detectLanguage(question);
+    
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
     try {
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: question })
+        body: JSON.stringify({ 
+          message: question,
+          language: detectedLanguage 
+        })
       });
 
       const data = await response.json();
