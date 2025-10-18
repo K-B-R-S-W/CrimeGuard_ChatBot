@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, ChangeEvent, KeyboardEvent, FC } from 'react';
 import './Css/App.css';
+import { transcribeAudio, speakText, stopSpeaking } from './utils/speechService';
 
 interface Message {
   content: string | React.ReactNode;
@@ -69,6 +70,11 @@ const App: FC = () => {
       document.documentElement.setAttribute('data-theme', 'dark');
     }
     createParticles();
+    
+    // Cleanup speech synthesis on unmount
+    return () => {
+      stopSpeaking();
+    };
   }, []);
 
   const createParticles = () => {
@@ -297,77 +303,92 @@ const App: FC = () => {
   };
 
   const sendVoiceMessage = async (audioBlob: Blob) => {
-    const formData = new FormData();
-    formData.append('file', audioBlob, 'recording.webm');
-
     try {
-      const response = await fetch('http://localhost:8000/voice_chat', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) throw new Error('Voice processing failed');
-
-      const data = await response.json();
-
-      // First add the transcribed user message in blue
-      if (data.transcription) {
-        addMessage(data.transcription, 'user');
-        // Then show that the assistant is processing
-        addMessage('Assistant is analyzing your message...', 'bot', true);
+      // Step 1: Transcribe audio using ElevenLabs (client-side)
+      addMessage('Transcribing your speech...', 'bot', true);
+      
+      const transcription = await transcribeAudio(audioBlob);
+      
+      if (!transcription || transcription.trim().length === 0) {
+        setMessages(prev => prev.filter(msg => !msg.isTyping));
+        addMessage('Could not understand the audio. Please speak clearly and try again.', 'bot');
+        return;
       }
 
-      // Small delay to show the processing message
-      setTimeout(() => {
-        // Remove the processing message
-        setMessages(prev => prev.filter(msg => !msg.isTyping));
+      // Remove transcription message and add the transcribed user message
+      setMessages(prev => prev.filter(msg => !msg.isTyping));
+      addMessage(transcription, 'user');
+      
+      // Step 2: Send transcription to backend for AI response (text only)
+      addMessage('Assistant is analyzing your message...', 'bot', true);
+      
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: transcription,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response from server');
+      }
+
+      const data = await response.json();
+      
+      // Remove processing message
+      setMessages(prev => prev.filter(msg => !msg.isTyping));
+      
+      // Step 3: Display and speak the response
+      if (data.response) {
+        let responseText = '';
+        let displayContent: string | React.ReactNode = '';
         
-        // Add the bot's response
-        if (data.text_response) {
-          addMessage(data.text_response, 'bot');
-          
-          // Play audio response from backend if available
-          if (data.audio) {
-            try {
-              // Convert base64 audio to blob and play it
-              const audioData = atob(data.audio);
-              const arrayBuffer = new Uint8Array(audioData.length);
-              for (let i = 0; i < audioData.length; i++) {
-                arrayBuffer[i] = audioData.charCodeAt(i);
-              }
-              const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-              const audioUrl = URL.createObjectURL(blob);
-              const audio = new Audio(audioUrl);
-              
-              // Set playback speed if provided (default: 1.3x for faster speech)
-              if (data.speed) {
-                audio.playbackRate = data.speed;
-                console.log(`Playing audio at ${data.speed}x speed`);
-              }
-              
-              audio.play().catch(err => {
-                console.error('Error playing audio:', err);
-                // Fallback to browser TTS if audio playback fails
-                const utterance = new window.SpeechSynthesisUtterance(data.text_response);
-                window.speechSynthesis.speak(utterance);
-              });
-              
-              // Clean up the URL after audio finishes playing
-              audio.onended = () => URL.revokeObjectURL(audioUrl);
-            } catch (err) {
-              console.error('Error processing audio:', err);
-              // Fallback to browser TTS
-              const utterance = new window.SpeechSynthesisUtterance(data.text_response);
-              window.speechSynthesis.speak(utterance);
-            }
+        // Handle formatted response (steps or text)
+        if (typeof data.response === 'object') {
+          if (data.response.type === 'steps' && Array.isArray(data.response.content)) {
+            // Format as list for display
+            displayContent = (
+              <ul>
+                {data.response.content.map((step: string, idx: number) => (
+                  <li key={idx}>{step}</li>
+                ))}
+              </ul>
+            );
+            // For TTS, join all steps with periods
+            responseText = data.response.content.join('. ');
+          } else if (data.response.content) {
+            responseText = data.response.content;
+            displayContent = responseText;
           } else {
-            // Fallback to browser TTS if no audio from backend
-            const utterance = new window.SpeechSynthesisUtterance(data.text_response);
-            window.speechSynthesis.speak(utterance);
+            responseText = JSON.stringify(data.response);
+            displayContent = responseText;
           }
+        } else {
+          responseText = data.response;
+          displayContent = responseText;
         }
-      }, 1000); // 1 second delay for natural conversation flow
+        
+        // Add the message to display
+        addMessage(displayContent, 'bot');
+        
+        // Step 4: Use browser TTS to speak the response (client-side)
+        const detectedLanguage = data.language || 'en';
+        console.log('About to speak:', responseText.substring(0, 50), 'in language:', detectedLanguage);
+        
+        try {
+          await speakText(responseText, detectedLanguage);
+          console.log('Speech completed successfully');
+        } catch (err) {
+          console.error('Error during speech synthesis:', err);
+          // Speech failed but message is still displayed
+        }
+      }
     } catch (error) {
+      console.error('Voice message error:', error);
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       addMessage('I apologize, but there was an issue processing your voice message. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).', 'bot');
     }

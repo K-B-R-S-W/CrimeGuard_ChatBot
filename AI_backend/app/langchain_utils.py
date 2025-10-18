@@ -1,14 +1,13 @@
 """
-Utility module for voice processing and response formatting.
+Utility module for response formatting.
 Main language routing and response generation is handled by langgraph_utils.py
-This module provides helper functions for formatting and voice utilities.
+This module provides helper functions for formatting responses.
 """
 
 import logging
 import os
 import re
 from dotenv import load_dotenv
-from .voice_config import speech_to_text, text_to_speech
 
 # Load environment variables
 load_dotenv()
