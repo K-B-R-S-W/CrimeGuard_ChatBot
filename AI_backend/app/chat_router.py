@@ -16,10 +16,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from AI_backend.app.langchain_utils import (
     speech_to_text,
-    get_ai_response,
     text_to_speech,
     format_response_as_list,
-    graph,
+)
+from AI_backend.app.langgraph_utils import (
+    get_multilingual_response,
+    clean_response,
+    detect_language
 )
 from AI_backend.app.db_utils import save_chat_interaction
 from langchain_core.messages import HumanMessage
@@ -123,8 +126,13 @@ async def voice_chat(file: UploadFile = File(...)):
                 content={"error": "Could not understand the audio. Please speak clearly and try again."}
             )
             
-        # Get AI response
-        text_response = get_ai_response(transcription)
+        # Get AI response using the new multilingual LangGraph
+        logger.info("Getting multilingual response for voice chat")
+        response_data = get_multilingual_response(transcription, thread_id="voice_conversation")
+        text_response = clean_response(response_data["response"])
+        detected_language = response_data["language"]
+        
+        logger.info(f"Voice response generated in {detected_language}: {text_response[:100]}...")
 
         # Save the voice interaction to MongoDB
         try:
@@ -137,10 +145,27 @@ async def voice_chat(file: UploadFile = File(...)):
         except Exception as e:
             logger.error(f"Failed to save voice interaction to MongoDB: {e}")
 
-        # Return both transcription and response as JSON
+        # Generate audio response using gTTS with configurable speed
+        logger.info(f"Generating audio response for language: {detected_language}")
+        try:
+            # Get speed from environment or use default (1.3 = 30% faster)
+            tts_speed = float(os.getenv('TTS_SPEED', '1.3'))
+            
+            # Map language codes: 'en', 'si', 'ta'
+            audio_bytes = text_to_speech(text_response, language=detected_language, speed=tts_speed)
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            logger.info(f"Audio generated successfully. Size: {len(audio_bytes)} bytes, Speed: {tts_speed}x")
+        except Exception as e:
+            logger.error(f"Failed to generate TTS audio: {e}")
+            audio_base64 = None
+
+        # Return transcription, text response, audio, speed, and language as JSON
         return JSONResponse({
             "transcription": transcription,
-            "text_response": text_response
+            "text_response": text_response,
+            "audio": audio_base64,  # Base64 encoded audio
+            "speed": tts_speed,  # Playback speed multiplier
+            "language": detected_language
         })
     except Exception as e:
         logger.error(f"Error during voice chat processing: {e}", exc_info=True)
@@ -163,6 +188,7 @@ async def chat(request: Request):
     try:
         data = await request.json()
         user_input = data.get("message")
+        language = data.get("language")  # Get language from frontend (optional)
 
         if not user_input:
             logger.warning("Received empty message in /chat request")
@@ -171,14 +197,16 @@ async def chat(request: Request):
                 content={"error": "Message cannot be empty."}
             )
 
-        logger.info(f"Invoking LangGraph for text chat: {user_input}")
-        config = {"configurable": {"thread_id": "text_conversation"}}
-        response = graph.invoke(
-            {"messages": [HumanMessage(content=user_input)]},
-            config=config
-        )
-        raw_response = response["messages"][-1].content
-        logger.info(f"Raw response from graph: {raw_response}")
+        logger.info(f"Processing text chat: {user_input}")
+        
+        # Use the new multilingual LangGraph
+        response_data = get_multilingual_response(user_input, thread_id="text_conversation")
+        raw_response = clean_response(response_data["response"])
+        detected_language = response_data["language"]
+        
+        logger.info(f"Chat response generated in {detected_language}: {raw_response[:100]}...")
+        
+        # Format the response
         formatted_response = format_response_as_list(raw_response)
         logger.info(f"Formatted response for /chat: {formatted_response}")
 
@@ -189,7 +217,10 @@ async def chat(request: Request):
             message_type='text'
         )
 
-        return {"response": formatted_response}
+        return {
+            "response": formatted_response,
+            "language": detected_language
+        }
 
     except Exception as e:
         logger.error(f"Error during chat processing: {e}", exc_info=True)
