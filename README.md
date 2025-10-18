@@ -421,7 +421,7 @@ CrimeGuard_ChatBot/
 - ✓ Clear browser cache and reload
 
 **MongoDB Connection Issues:**
-- ✓ Verify `MONGODB_URI` format: `mongodb+srv://user:pass@cluster.mongodb.net/dbname`
+- ✓ Verify `MONGODB_URI` 
 - ✓ Check IP whitelist in MongoDB Atlas (add 0.0.0.0/0 for testing)
 - ✓ Confirm MongoDB service is running (if local)
 - ✓ Test connection: `python test_mongo_connection.py`
