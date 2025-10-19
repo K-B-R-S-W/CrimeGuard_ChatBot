@@ -20,6 +20,7 @@ from AI_backend.app.langgraph_utils import (
     clean_response,
 )
 from AI_backend.app.db_utils import save_chat_interaction
+from AI_backend.app.twilio_service import twilio_service
 
 # Setup logging
 logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
@@ -45,6 +46,50 @@ async def chat(request: Request):
 
         logger.info(f"Processing text chat: {user_input}")
         
+        # FIRST: Check if this is an emergency call request
+        emergency_intent = twilio_service.detect_emergency_intent(user_input)
+        
+        if emergency_intent:
+            emergency_type = emergency_intent['type']
+            emergency_number = emergency_intent['number']
+            detected_lang = emergency_intent.get('language', 'en')
+            
+            logger.info(f"Emergency call detected: {emergency_type}")
+            
+            # Initiate the emergency call
+            success, call_info = twilio_service.make_emergency_call(
+                to_number=emergency_number,
+                emergency_type=emergency_type
+            )
+            
+            # Get appropriate response message
+            response_message = twilio_service.get_emergency_response_text(
+                emergency_type=emergency_type,
+                language=detected_lang
+            )
+            
+            if success:
+                logger.info(f"Emergency call successful: {call_info}")
+                # Save the emergency interaction
+                save_chat_interaction(
+                    user_message=user_input,
+                    bot_response=f"Emergency call initiated: {emergency_type} - Call SID: {call_info}",
+                    message_type='emergency_call'
+                )
+            else:
+                logger.error(f"Emergency call failed: {call_info}")
+                response_message += f"\n\n⚠️ **Note:** Automated call failed ({call_info}). Please dial {emergency_number} directly!"
+            
+            return {
+                "response": response_message,
+                "language": detected_lang,
+                "emergency_call": True,
+                "emergency_type": emergency_type,
+                "call_initiated": success,
+                "call_sid": call_info if success else None
+            }
+        
+        # If not an emergency call, proceed with normal chat
         # Use the new multilingual LangGraph
         response_data = get_multilingual_response(user_input, thread_id="text_conversation")
         raw_response = clean_response(response_data["response"])
@@ -65,7 +110,8 @@ async def chat(request: Request):
 
         return {
             "response": formatted_response,
-            "language": detected_language
+            "language": detected_language,
+            "emergency_call": False
         }
 
     except Exception as e:
