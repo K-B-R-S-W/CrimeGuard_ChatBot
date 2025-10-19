@@ -162,7 +162,8 @@ const App: FC = () => {
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -176,17 +177,29 @@ const App: FC = () => {
       // Remove typing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
 
-      if (data.response.type === 'steps') {
-        addMessage(
-          <ul>
-            {data.response.content.map((step: string, idx: number) => (
-              <li key={idx}>{step}</li>
-            ))}
-          </ul>,
-          'bot'
-        );
+      // Check if this was an emergency call
+      if (data.emergency_call) {
+        // Display emergency response with special styling
+        addMessage(data.response, 'bot');
+        
+        // If call was initiated, show additional confirmation
+        if (data.call_initiated) {
+          console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
+        }
       } else {
-        addMessage(data.response.content, 'bot');
+        // Normal chat response
+        if (data.response.type === 'steps') {
+          addMessage(
+            <ul>
+              {data.response.content.map((step: string, idx: number) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ul>,
+            'bot'
+          );
+        } else {
+          addMessage(data.response.content, 'bot');
+        }
       }
     } catch (error) {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
@@ -342,7 +355,27 @@ const App: FC = () => {
       // Remove processing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       
-      // Step 3: Display and speak the response
+      // Check if this was an emergency call
+      if (data.emergency_call) {
+        // Display emergency response with special styling
+        addMessage(data.response, 'bot');
+        
+        // If call was initiated, show additional confirmation
+        if (data.call_initiated) {
+          console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
+        }
+        
+        // For emergency calls, also speak the response
+        const detectedLanguage = data.language || 'en';
+        try {
+          await speakText(data.response, detectedLanguage);
+        } catch (err) {
+          console.error('Error during emergency speech synthesis:', err);
+        }
+        return;
+      }
+      
+      // Step 3: Display and speak the response (normal flow)
       if (data.response) {
         let responseText = '';
         let displayContent: string | React.ReactNode = '';
@@ -404,7 +437,8 @@ const App: FC = () => {
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -418,17 +452,28 @@ const App: FC = () => {
       // Remove typing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
 
-      if (data.response.type === 'steps') {
-        addMessage(
-          <ul>
-            {data.response.content.map((step: string, idx: number) => (
-              <li key={idx}>{step}</li>
-            ))}
-          </ul>,
-          'bot'
-        );
+      // Check if this was an emergency call
+      if (data.emergency_call) {
+        // Display emergency response
+        addMessage(data.response, 'bot');
+        
+        if (data.call_initiated) {
+          console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
+        }
       } else {
-        addMessage(data.response.content, 'bot');
+        // Normal response
+        if (data.response.type === 'steps') {
+          addMessage(
+            <ul>
+              {data.response.content.map((step: string, idx: number) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ul>,
+            'bot'
+          );
+        } else {
+          addMessage(data.response.content, 'bot');
+        }
       }
     } catch (error) {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
