@@ -4,10 +4,11 @@ This project is an AI-powered emergency assistant for Sri Lanka, featuring a Fas
 
 ## 🎯 Key Highlights
 
+- **🚨 Automated Emergency Calling**: Twilio-powered voice calls to Police, Fire, and Ambulance services
 - **Advanced Speech Recognition**: ElevenLabs Conversational AI for accurate Sinhala transcription
 - **Hybrid TTS Architecture**: Browser voices for English, gTTS backend for Sinhala/Tamil
 - **60-70% Faster Response**: Client-side speech processing eliminates large file transfers
-- **Multi-language Support**: English, Sinhala (සිංහල), and Tamil (தமிழ்)
+- **Multi-language Support**: English, Sinhala (සිංහල), and Tamil (தமிழ්)
 - **Intelligent Routing**: LangGraph-powered agent system with OpenAI and Gemini integration
 - **Real-time Communication**: WebSocket-ready architecture for instant responses
 
@@ -21,11 +22,13 @@ CrimeGuard_ChatBot/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── chat_router.py           # Main API endpoints (/chat, /tts)
+│   │   ├── twilio_service.py        # Emergency call detection & Twilio integration
 │   │   ├── langchain_utils.py       # Response formatting utilities
 │   │   ├── langgraph_utils.py       # Intelligent routing with LangGraph
 │   │   └── db_utils.py              # MongoDB integration
 │   ├── main.py                      # FastAPI application entry point
 │   ├── requirements.txt             # Python dependencies
+│   ├── test_emergency_detection.py  # Emergency keyword detection tester
 │   ├── test_mongo_connection.py     # Database connection tester
 │   └── .env                         # Environment variables
 └── Frontend/                      
@@ -54,11 +57,13 @@ CrimeGuard_ChatBot/
 
 - **Backend (`AI_backend/`):**
   - FastAPI server with intelligent routing using LangGraph
+  - **Twilio integration for automated emergency voice calls**
   - Multi-model AI integration (OpenAI GPT-4 for English/Tamil, Google Gemini for Sinhala)
   - MongoDB connection for persistent chat history
   - Optimized gTTS endpoint for Sinhala/Tamil text-to-speech
   - RESTful API with /chat and /tts endpoints
   - Environment-based configuration with dotenv
+  - **Emergency keyword detection in 3 languages**
 
 - **Frontend (`Frontend/`):**
   - React TypeScript application with modern hooks
@@ -82,6 +87,18 @@ CrimeGuard_ChatBot/
 ---
 
 ## ✨ Features
+
+### 🚨 Automated Emergency Calling (NEW!)
+- **Keyword Detection**: Automatically detects emergency requests in English, Sinhala, and Tamil
+- **Instant Voice Calls**: Uses Twilio to call emergency services on user's behalf
+- **Multi-Service Support**:
+  - **Police (119)**: "call police", "පොලිසියට කතා කරන්න", "காவல்துறையை அழைக்கவும்"
+  - **Fire (110)**: "call fire department", "ගිනි නිවීම කතා කරන්න", "தீயணைப்பு அழைக்க"
+  - **Ambulance (1990)**: "call ambulance", "ගිලන් රථයට කතා කරන්න", "ஆம்புலன்ஸை அழைக்கவும்"
+- **Natural Language**: Understands phrases like "I need help call the police"
+- **Configurable Numbers**: Emergency numbers can be changed via `.env` file
+- **Real-time Feedback**: Immediate confirmation when call is initiated
+- **Database Logging**: All emergency calls are logged for audit purposes
 
 ### 🎤 Advanced Voice Processing
 - **ElevenLabs Speech-to-Text**: High-accuracy transcription using `scribe_v1` model
@@ -155,6 +172,7 @@ CrimeGuard_ChatBot/
    **Key Dependencies:**
    - `fastapi==0.109.0` - Modern web framework
    - `uvicorn==0.27.0` - ASGI server
+   - `twilio==8.10.0` - Voice call integration (NEW!)
    - `langchain==0.1.0` - LLM orchestration
    - `langgraph==0.0.15` - Intelligent routing
    - `langchain-openai==0.0.2` - OpenAI integration
@@ -171,6 +189,16 @@ CrimeGuard_ChatBot/
      
      # Google Gemini Configuration (for Sinhala)
      GOOGLE_API_KEY=your_google_api_key_here
+     
+     # Twilio Configuration (for Emergency Calls) - NEW!
+     TWILIO_ACCOUNT_SID=your_twilio_account_sid
+     TWILIO_AUTH_TOKEN=your_twilio_auth_token
+     TWILIO_PHONE_NUMBER=Your_Number
+     
+     # Emergency Service Numbers (Configurable)
+     EMERGENCY_POLICE_NUMBER=+94119
+     EMERGENCY_FIRE_NUMBER=+94110
+     EMERGENCY_AMBULANCE_NUMBER=+941990
      
      # Server Configuration
      PORT=8000
@@ -281,12 +309,24 @@ CrimeGuard_ChatBot/
 - Click any emergency button for immediate guidance
 - Responses are context-aware and actionable
 
+**Emergency Calling (NEW!):**
+1. Type or say emergency keywords:
+   - English: "call police", "call fire department", "call ambulance"
+   - Sinhala: "පොලිසියට කතා කරන්න", "ගිනි නිවීම", "ගිලන් රථයට කතා කරන්න"
+   - Tamil: "காவல்துறையை அழைக்கவும்", "தீயணைப்பு", "ஆம்புலன்ஸை அழைக்கவும்"
+2. System automatically detects the emergency type
+3. Twilio initiates voice call to appropriate service
+4. Confirmation message displayed with service details
+5. Call logged in database for record-keeping
+
 ### API Endpoints
 
 **POST `/chat`**
 - **Input**: `{ "message": "your text message" }`
-- **Output**: `{ "response": { "type": "text|steps", "content": "..." }, "language": "en|si|ta" }`
-- **Purpose**: Text-based chat processing with language detection
+- **Output**: 
+  - Normal: `{ "response": { "type": "text|steps", "content": "..." }, "language": "en|si|ta", "emergency_call": false }`
+  - Emergency: `{ "response": "Emergency message...", "language": "en|si|ta", "emergency_call": true, "emergency_type": "police|fire|ambulance", "call_initiated": true, "call_sid": "CA123..." }`
+- **Purpose**: Text-based chat processing with language detection and emergency call triggering
 
 **POST `/tts`**
 - **Input**: `{ "text": "text to speak", "language": "en|si|ta" }`
@@ -305,6 +345,11 @@ CrimeGuard_ChatBot/
   - Get it from: https://makersuite.google.com/app/apikey
 - **ElevenLabs API Key**: For speech-to-text transcription
   - Get it from: https://elevenlabs.io/app/settings/api-keys
+- **Twilio Account (NEW!)**: For emergency voice calls
+  - Sign up: https://www.twilio.com/try-twilio
+  - Get Account SID and Auth Token from console
+  - Purchase a phone number or use trial number
+  - **Note**: Trial accounts can only call verified numbers
 
 ### Voice Processing Architecture
 
@@ -360,7 +405,9 @@ CrimeGuard_ChatBot/
 - **Environment Variables**: Sensitive keys stored in .env files
 - **Input Validation**: Pydantic models for request validation
 - **Error Handling**: Graceful degradation with user-friendly messages
+- **Emergency Call Logging**: All calls logged with timestamp and SID for audit
 - **Rate Limiting**: Consider adding for production (e.g., slowapi)
+- **Twilio Security**: Account SID and Auth Token securely stored
 
 ### Browser Compatibility
 - **Recommended**: Chrome/Edge (best Web Speech API support)

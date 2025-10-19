@@ -18,3 +18,4 @@ passlib==1.7.4
 bcrypt==4.1.2
 httpx==0.26.0
 gTTS==2.4.0
+twilio==8.10.0
