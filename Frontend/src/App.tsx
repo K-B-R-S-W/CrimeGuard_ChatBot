@@ -63,6 +63,18 @@ const App: FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Emergency call tracker state
+  const [showCallTracker, setShowCallTracker] = useState(false);
+  const [currentCall, setCurrentCall] = useState<{
+    sid: string;
+    service: string;
+    number: string;
+    type: string;
+    language: string;
+  } | null>(null);
+  const [callDuration, setCallDuration] = useState(0);
+  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
@@ -74,6 +86,9 @@ const App: FC = () => {
     // Cleanup speech synthesis on unmount
     return () => {
       stopSpeaking();
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+      }
     };
   }, []);
 
@@ -113,6 +128,40 @@ const App: FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const cancelEmergencyCall = async () => {
+    if (!currentCall) return;
+
+    try {
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/cancel_call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_sid: currentCall.sid })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('Call canceled successfully');
+        addMessage(`Call to ${currentCall.service} has been canceled.`, 'bot');
+      } else {
+        console.error('Failed to cancel call:', data.error);
+        addMessage(`Unable to cancel call: ${data.error}`, 'bot');
+      }
+    } catch (error) {
+      console.error('Error canceling call:', error);
+      addMessage('Error canceling the call. Please hang up manually if needed.', 'bot');
+    } finally {
+      // Close the tracker
+      setShowCallTracker(false);
+      setCurrentCall(null);
+      setCallDuration(0);
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+      }
+    }
+  };
 
   const toggleTheme = () => {
     setIsDarkTheme(prev => {
@@ -182,9 +231,30 @@ const App: FC = () => {
         // Display emergency response with special styling
         addMessage(data.response, 'bot');
         
-        // If call was initiated, show additional confirmation
-        if (data.call_initiated) {
+        // If call was initiated, show call tracker popup
+        if (data.call_initiated && data.call_sid) {
           console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
+          
+          // Set current call data
+          setCurrentCall({
+            sid: data.call_sid,
+            service: data.service_name,
+            number: data.emergency_number,
+            type: data.emergency_type,
+            language: data.language
+          });
+          
+          // Show call tracker
+          setShowCallTracker(true);
+          setCallDuration(0);
+          
+          // Start call duration timer
+          if (callTimerRef.current) {
+            clearInterval(callTimerRef.current);
+          }
+          callTimerRef.current = setInterval(() => {
+            setCallDuration(prev => prev + 1);
+          }, 1000);
         }
       } else {
         // Normal chat response
@@ -357,12 +427,33 @@ const App: FC = () => {
       
       // Check if this was an emergency call
       if (data.emergency_call) {
-        // Display emergency response with special styling
+        // Display emergency response
         addMessage(data.response, 'bot');
         
-        // If call was initiated, show additional confirmation
-        if (data.call_initiated) {
+        // If call was initiated, show call tracker popup
+        if (data.call_initiated && data.call_sid) {
           console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
+          
+          // Set current call data
+          setCurrentCall({
+            sid: data.call_sid,
+            service: data.service_name,
+            number: data.emergency_number,
+            type: data.emergency_type,
+            language: data.language
+          });
+          
+          // Show call tracker
+          setShowCallTracker(true);
+          setCallDuration(0);
+          
+          // Start call duration timer
+          if (callTimerRef.current) {
+            clearInterval(callTimerRef.current);
+          }
+          callTimerRef.current = setInterval(() => {
+            setCallDuration(prev => prev + 1);
+          }, 1000);
         }
         
         // For emergency calls, also speak the response
@@ -505,6 +596,44 @@ const App: FC = () => {
 
   return (
     <>
+      {/* Emergency Call Tracker Popup */}
+      {showCallTracker && currentCall && (
+        <div className="call-tracker-overlay">
+          <div className="call-tracker-popup">
+            <div className="call-tracker-header">
+              <div className="call-tracker-icon">🚨</div>
+            </div>
+            
+            <div className="call-tracker-content">
+              <div className="call-tracker-service">{currentCall.service}</div>
+              <div className="call-tracker-number">{currentCall.number}</div>
+              
+              <div className="call-tracker-animation">
+                <div className="call-pulse">
+                  <i className="fas fa-phone-alt"></i>
+                </div>
+              </div>
+              
+              <div className="call-tracker-status">Calling...</div>
+              <div className="call-tracker-timer">
+                {Math.floor(callDuration / 60)}:{(callDuration % 60).toString().padStart(2, '0')}
+              </div>
+              
+              <div className="call-tracker-actions">
+                <button className="cancel-call-btn" onClick={cancelEmergencyCall}>
+                  <i className="fas fa-phone-slash"></i>
+                  Cancel Call
+                </button>
+              </div>
+              
+              <div className="call-tracker-warning">
+                ⚠️ This call is being placed to emergency services. Only cancel if this was a mistake.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chatbot Section - Always Open */}
       <div className="chat-container open">
           <div className="chat-header">
