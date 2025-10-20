@@ -1,13 +1,13 @@
 """
 Twilio Voice Call Service for Emergency Situations
-Detects emergency keywords and initiates voice calls to appropriate authorities
+Uses LLM to intelligently detect emergencies and initiate voice calls to appropriate authorities
 """
 import os
 import logging
 from typing import Dict, Optional, Tuple
 from twilio.rest import Client
 from dotenv import load_dotenv
-import re
+import json
 
 load_dotenv()
 
@@ -25,157 +25,43 @@ EMERGENCY_NUMBERS = {
     'ambulance': os.getenv('EMERGENCY_AMBULANCE_NUMBER', '+941990')  # Default: Suwa Seriya Ambulance
 }
 
-# Emergency Keywords - Multi-language support
-EMERGENCY_KEYWORDS = {
-    'police': {
-        'en': [
-            r'\bcall\s+(the\s+)?police\b',           # "call police" or "call the police"
-            r'\bpolice\b.*\bcall\b',                 # "police" followed by "call"
-            r'\bcall.*police\b',                     # "call" followed by "police" (catches "call help police")
-            r'\bdial\s+119\b',                       # "dial 119"
-            r'\bcontact\s+(the\s+)?police\b',        # "contact police" or "contact the police"
-            r'\breport\s+(to\s+)?crime\b',           # "report crime"
-            r'\bemergency\s+police\b',               # "emergency police"
-            r'\bneed\s+police\b',                    # "need police"
-            r'\bhelp.*police\b',                     # "help police" or "help me call police"
-            r'\bpolice.*help\b',                     # "police help"
-            r'\bpolice.*urgent\b',                   # "police urgent"
-            r'\bpolice.*emergency\b',                # "police emergency"
-        ],
-        'si': [
-            r'පොලිස්',                              # "police"
-            r'පොලිසියට',                            # "to police"
-            r'පොලිසිය',                             # "the police"
-            r'පොලීස්',                              # alternate spelling
-            r'119',                                  # emergency number
-            r'කතා\s*කරන්න.*පොලිස්',                 # "call police" (any order)
-            r'පොලිස්.*කතා\s*කරන්න',                # "police call"
-            r'අමතන්න.*පොලිස්',                     # "contact police"
-            r'පොලිස්.*අමතන්න',                     # "police contact"
-            r'උදව්.*පොලිස්',                        # "help police"
-            r'පොලිස්.*උදව්',                        # "police help"
-            r'හදිසි.*පොලිස්',                       # "emergency police"
-            r'පොලිස්.*හදිසි',                       # "police emergency"
-        ],
-        'ta': [
-            r'காவல்துறை',                           # "police department"
-            r'காவல்துறையை',                        # "to police department"
-            r'போலீஸ்',                              # "police"
-            r'போலீஸை',                              # "to police"
-            r'119',                                  # emergency number
-            r'அழைக்க.*காவல்',                      # "call police" (any order)
-            r'காவல்.*அழைக்க',                      # "police call"
-            r'தொடர்பு.*காவல்',                     # "contact police"
-            r'உதவி.*காவல்',                        # "help police"
-            r'காவல்.*உதவி',                        # "police help"
-            r'அவசர.*காவல்',                        # "emergency police"
-        ]
-    },
-    'fire': {
-        'en': [
-            r'\bcall\s+(the\s+)?fire\b',             # "call fire" or "call the fire"
-            r'\bfire\s+truck\b',                     # "fire truck"
-            r'\bfire\s+department\b',                # "fire department"
-            r'\bfire\s+brigade\b',                   # "fire brigade"
-            r'\bfire.*emergency\b',                  # "fire emergency"
-            r'\bdial\s+110\b',                       # "dial 110"
-            r'\bfire\s+service\b',                   # "fire service"
-            r'\bcall.*fire\b',                       # "call help fire" or "call the fire"
-            r'\bneed.*fire\b',                       # "need fire department"
-            r'\bhelp.*fire\b',                       # "help fire"
-            r'\bfire.*help\b',                       # "fire help"
-            r'\bfire.*urgent\b',                     # "fire urgent"
-        ],
-        'si': [
-            r'ගිනි',                                # "fire"
-            r'ගින්න',                               # "fire" (colloquial)
-            r'ගිනි\s+නිවීම',                        # "fire extinguishing"
-            r'ගිනි\s+නිවන',                         # "fire fighting"
-            r'ගිනි\s+හමුදාව',                       # "fire brigade"
-            r'ගිනි.*සේවාව',                        # "fire service"
-            r'110',                                  # emergency number
-            r'කතා\s*කරන්න.*ගිනි',                  # "call fire"
-            r'ගිනි.*කතා\s*කරන්න',                  # "fire call"
-            r'අමතන්න.*ගිනි',                      # "contact fire"
-            r'ගිනි.*අමතන්න',                       # "fire contact"
-            r'උදව්.*ගිනි',                         # "help fire"
-            r'ගිනි.*උදව්',                         # "fire help"
-            r'හදිසි.*ගිනි',                        # "emergency fire"
-            r'ගිනි.*හදිසි',                        # "fire emergency"
-        ],
-        'ta': [
-            r'தீ',                                   # "fire"
-            r'தீயணைப்பு',                           # "fire fighting"
-            r'தீயணைப்பு\s+துறை',                   # "fire department"
-            r'தீயணைப்பு\s+சேவை',                   # "fire service"
-            r'110',                                  # emergency number
-            r'அழைக்க.*தீ',                         # "call fire"
-            r'தீ.*அழைக்க',                         # "fire call"
-            r'தொடர்பு.*தீ',                        # "contact fire"
-            r'உதவி.*தீ',                           # "help fire"
-            r'தீ.*உதவி',                           # "fire help"
-            r'அவசர.*தீ',                           # "emergency fire"
-        ]
-    },
-    'ambulance': {
-        'en': [
-            r'\bcall\s+(the\s+|an\s+)?ambulance\b',  # "call ambulance" or "call the ambulance" or "call an ambulance"
-            r'\bambulance\b.*\bcall\b',              # "ambulance" followed by "call"
-            r'\bcall.*ambulance\b',                  # "call" followed by "ambulance"
-            r'\bmedical\s+emergency\b',              # "medical emergency"
-            r'\bdial\s+1990\b',                      # "dial 1990"
-            r'\bsuwa\s+seriya\b',                    # "suwa seriya"
-            r'\bemergency\s+medical\b',              # "emergency medical"
-            r'\bhealth\s+emergency\b',               # "health emergency"
-            r'\bneed.*ambulance\b',                  # "need ambulance"
-            r'\bhelp.*ambulance\b',                  # "help ambulance"
-            r'\bambulance.*help\b',                  # "ambulance help"
-            r'\bambulance.*urgent\b',                # "ambulance urgent"
-            r'\bmedical.*help\b',                    # "medical help"
-        ],
-        'si': [
-            r'ගිලන්\s*රථ',                         # "ambulance"
-            r'ගිලන්රථය',                           # "the ambulance"
-            r'ඇම්බියුලන්ස්',                        # "ambulance" (English word)
-            r'සුව\s+සැරිය',                         # "Suwa Seriya"
-            r'සුව\s*සැරිය',                         # "Suwa Seriya" (no space)
-            r'1990',                                 # emergency number
-            r'කතා\s*කරන්න.*ගිලන්',                 # "call ambulance"
-            r'ගිලන්.*කතා\s*කරන්න',                 # "ambulance call"
-            r'කතා\s*කරන්න.*ඇම්බියුලන්ස්',          # "call ambulance" (English word)
-            r'අමතන්න.*ගිලන්',                     # "contact ambulance"
-            r'ගිලන්.*අමතන්න',                      # "ambulance contact"
-            r'උදව්.*ගිලන්',                        # "help ambulance"
-            r'ගිලන්.*උදව්',                        # "ambulance help"
-            r'වෛද්‍ය.*උදව්',                       # "medical help"
-            r'හදිසි.*වෛද්‍ය',                      # "emergency medical"
-            r'අසනීප',                              # "sick/unwell"
-        ],
-        'ta': [
-            r'ஆம்புலன்ஸ்',                          # "ambulance"
-            r'ஆம்புலன்ஸை',                         # "to ambulance"
-            r'மருத்துவ',                            # "medical"
-            r'அவசர\s+மருத்துவம்',                   # "emergency medical"
-            r'சுவ\s+செரியா',                        # "Suwa Seriya"
-            r'1990',                                 # emergency number
-            r'அழைக்க.*ஆம்புலன்ஸ்',                # "call ambulance"
-            r'ஆம்புலன்ஸ்.*அழைக்க',                # "ambulance call"
-            r'தொடர்பு.*ஆம்புலன்ஸ்',               # "contact ambulance"
-            r'உதவி.*ஆம்புலன்ஸ்',                  # "help ambulance"
-            r'ஆம்புலன்ஸ்.*உதவி',                  # "ambulance help"
-            r'மருத்துவ.*உதவி',                     # "medical help"
-            r'அவசர.*மருத்துவ',                     # "emergency medical"
-            r'நோய்',                                 # "sick/illness"
-        ]
-    }
-}
+# Emergency detection prompt for LLM
+EMERGENCY_DETECTION_PROMPT = """You are an emergency detection AI assistant for Sri Lanka. Your job is to analyze user messages and determine if they require an emergency call to authorities.
+
+Available Emergency Services in Sri Lanka:
+1. Police (119) - For crimes, threats, violence, robberies, assaults, suspicious activities
+2. Fire Department (110) - For fires, gas leaks, building collapses, explosions
+3. Ambulance/Medical (1990 - Suwa Seriya) - For medical emergencies, injuries, accidents, health issues
+
+Analyze the following user message and determine:
+1. Is this an ACTUAL emergency requiring immediate authority contact? (not just a question about emergencies)
+2. If YES, which emergency service should be called?
+3. What is the detected language? (en for English, si for Sinhala, ta for Tamil)
+
+IMPORTANT RULES:
+- Only detect TRUE emergencies where the user NEEDS to call authorities NOW
+- Questions like "what is the police number?" or "how to call ambulance?" are NOT emergencies
+- Only phrases like "call police", "call ambulance", "there's a fire" etc. with urgency are emergencies
+- The user must be explicitly requesting a call or reporting an urgent situation
+- Be strict: when in doubt, it's NOT an emergency
+
+User Message: "{message}"
+
+Respond ONLY with valid JSON in this exact format (no extra text):
+{{
+    "is_emergency": true/false,
+    "emergency_type": "police/fire/ambulance/none",
+    "confidence": 0.0-1.0,
+    "language": "en/si/ta",
+    "reasoning": "brief explanation"
+}}"""
 
 
 class TwilioCallService:
     """Service to handle emergency voice calls via Twilio"""
     
     def __init__(self):
-        """Initialize Twilio client"""
+        """Initialize Twilio client and LLM for emergency detection"""
         if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
             logger.warning("Twilio credentials not configured. Call service will not work.")
             self.client = None
@@ -186,41 +72,113 @@ class TwilioCallService:
             except Exception as e:
                 logger.error(f"Failed to initialize Twilio client: {e}")
                 self.client = None
+        
+        # Initialize LLM for emergency detection
+        try:
+            from langchain_openai import ChatOpenAI
+            self.emergency_llm = ChatOpenAI(
+                model="gpt-4o-mini",  # Fast and cost-effective for classification
+                temperature=0.1,  # Low temperature for consistent detection
+                max_tokens=200
+            )
+            logger.info("Emergency detection LLM initialized (GPT-4o-mini)")
+        except Exception as e:
+            logger.error(f"Failed to initialize emergency detection LLM: {e}")
+            self.emergency_llm = None
     
     def detect_emergency_intent(self, message: str) -> Optional[Dict[str, str]]:
         """
-        Detect if the message contains emergency call keywords
+        Use LLM to intelligently detect if the message requires emergency call
         
         Args:
             message: User's message to analyze
             
         Returns:
-            Dict with emergency type and number if detected, None otherwise
+            Dict with emergency type, number, and language if detected, None otherwise
         """
-        message_lower = message.lower()
+        if not self.emergency_llm:
+            logger.error("Emergency detection LLM not initialized")
+            return None
         
-        # Check each emergency type
-        for emergency_type, languages in EMERGENCY_KEYWORDS.items():
-            for lang, patterns in languages.items():
-                for pattern in patterns:
-                    if re.search(pattern, message, re.IGNORECASE):
-                        logger.info(f"Emergency detected: {emergency_type} (language: {lang})")
-                        return {
-                            'type': emergency_type,
-                            'number': EMERGENCY_NUMBERS[emergency_type],
-                            'language': lang,
-                            'pattern_matched': pattern
-                        }
-        
-        return None
+        try:
+            # Create the detection prompt
+            prompt = EMERGENCY_DETECTION_PROMPT.format(message=message)
+            
+            logger.info(f"🔍 Analyzing message for emergency: {message[:100]}...")
+            
+            # Get LLM response
+            response = self.emergency_llm.invoke(prompt)
+            response_text = response.content.strip()
+            
+            logger.debug(f"LLM Response: {response_text}")
+            
+            # Parse JSON response
+            try:
+                # Extract JSON from response (in case there's extra text)
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
+                if json_start != -1 and json_end > json_start:
+                    json_str = response_text[json_start:json_end]
+                    result = json.loads(json_str)
+                else:
+                    logger.error("No JSON found in LLM response")
+                    return None
+                
+                # Check if it's an emergency
+                is_emergency = result.get('is_emergency', False)
+                emergency_type = result.get('emergency_type', 'none')
+                confidence = result.get('confidence', 0.0)
+                language = result.get('language', 'en')
+                reasoning = result.get('reasoning', '')
+                
+                logger.info(f"📊 Emergency Analysis:")
+                logger.info(f"   Is Emergency: {is_emergency}")
+                logger.info(f"   Type: {emergency_type}")
+                logger.info(f"   Confidence: {confidence}")
+                logger.info(f"   Language: {language}")
+                logger.info(f"   Reasoning: {reasoning}")
+                
+                # Only proceed if confidence is high enough (>= 0.7)
+                if is_emergency and confidence >= 0.7 and emergency_type in EMERGENCY_NUMBERS:
+                    logger.info(f"✅ Emergency detected: {emergency_type} (language: {language}, confidence: {confidence})")
+                    return {
+                        'type': emergency_type,
+                        'number': EMERGENCY_NUMBERS[emergency_type],
+                        'language': language,
+                        'confidence': confidence,
+                        'reasoning': reasoning
+                    }
+                else:
+                    logger.info(f"ℹ️ Not an emergency or low confidence")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM JSON response: {e}")
+                logger.error(f"Response was: {response_text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error in emergency detection: {e}", exc_info=True)
+            return None
     
-    def make_emergency_call(self, to_number: str, emergency_type: str) -> Tuple[bool, str]:
+    def make_emergency_call(
+        self, 
+        to_number: str, 
+        emergency_type: str,
+        user_message: Optional[str] = None,
+        language: str = 'en',
+        user_phone: Optional[str] = None
+    ) -> Tuple[bool, str]:
         """
-        Initiate a voice call to emergency services
+        Initiate a voice call to emergency services with conference bridge
+        Creates a 3-way call: Bot -> User -> Emergency Service
         
         Args:
             to_number: Emergency service number to call
             emergency_type: Type of emergency (police, fire, ambulance)
+            user_message: Optional user message to include in call
+            language: Language of user message (en, si, ta)
+            user_phone: User's phone number to call (for 3-way conference)
             
         Returns:
             Tuple of (success, message/call_sid)
@@ -230,31 +188,194 @@ class TwilioCallService:
             return False, "Twilio service not configured"
         
         try:
-            # Create TwiML for the call
-            twiml = f'''
-            <Response>
-                <Say voice="Polly.Aditi" language="en-IN">
-                    This is an emergency call from Crime Guard Chat Bot. 
-                    A user has requested {emergency_type} assistance. 
-                    Please standby for connection.
-                </Say>
-                <Pause length="2"/>
-            </Response>
-            '''
+            # Import audio manager
+            from .audio_manager import audio_manager
             
-            # Make the call
+            # Base intro message
+            intro = f"""This is an emergency call from Crime Guard Emergency Assistant. 
+A user has requested {emergency_type} assistance."""
+            
+            # Generate audio URL if user message is provided
+            audio_url = None
+            if user_message and len(user_message.strip()) > 0:
+                logger.info(f"✅ USER MESSAGE DETECTED: {user_message[:100]}...")
+                
+                # Get base URL for audio serving (use environment variable or default)
+                base_url = os.getenv('BASE_URL', 'http://localhost:8000')
+                
+                # Check if base_url is localhost (Twilio can't access localhost)
+                is_localhost = 'localhost' in base_url or '127.0.0.1' in base_url
+                
+                if is_localhost:
+                    logger.warning(f"⚠️ BASE_URL is localhost - Twilio cannot access it. Using Twilio TTS fallback.")
+                    logger.info(f"💡 To use gTTS audio, set BASE_URL in .env to a public URL (e.g., ngrok)")
+                    audio_url = None  # Force fallback to Twilio TTS
+                else:
+                    logger.info(f"🎵 Generating gTTS audio in language: {language}")
+                    
+                    # Generate audio with gTTS
+                    success, result = audio_manager.generate_and_upload_message(
+                        user_message=user_message,
+                        language=language,
+                        emergency_type=emergency_type,
+                        base_url=base_url
+                    )
+                    
+                    if success:
+                        audio_url = result
+                        logger.info(f"✅ Audio generated successfully: {audio_url}")
+                    else:
+                        logger.error(f"❌ Audio generation failed: {result}")
+                        # Will fallback to text-based TTS
+            
+            # Create TwiML
+            if audio_url:
+                # Use gTTS audio with <Play> tag
+                logger.info(f"🎤 Using gTTS audio playback")
+                twiml = f'''<Response>
+    <Say voice="Polly.Aditi" language="en-IN">{intro}</Say>
+    <Pause length="1"/>
+    <Say voice="Polly.Aditi" language="en-IN">The user's message follows:</Say>
+    <Pause length="1"/>
+    <Play>{audio_url}</Play>
+    <Pause length="1"/>
+    <Say voice="Polly.Aditi" language="en-IN">Please assist immediately.</Say>
+    <Pause length="1"/>
+    <Say voice="Polly.Aditi" language="en-IN">Playing message again:</Say>
+    <Play>{audio_url}</Play>
+    <Pause length="2"/>
+    <Hangup/>
+</Response>'''
+            elif user_message and len(user_message.strip()) > 0:
+                # Fallback: Use Twilio TTS if gTTS failed
+                logger.warning(f"⚠️ Falling back to Twilio TTS")
+                safe_message = user_message[:200] if len(user_message) > 200 else user_message
+                safe_message = safe_message.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                
+                twiml = f'''<Response>
+    <Say voice="Polly.Aditi" language="en-IN">{intro}</Say>
+    <Pause length="1"/>
+    <Say voice="Polly.Aditi" language="en-IN">The user said: {safe_message}</Say>
+    <Pause length="1"/>
+    <Say voice="Polly.Aditi" language="en-IN">Please assist immediately.</Say>
+    <Pause length="2"/>
+    <Say voice="Polly.Aditi" language="en-IN">Repeating: {safe_message}</Say>
+    <Pause length="2"/>
+    <Hangup/>
+</Response>'''
+            else:
+                # No user message
+                logger.info(f"ℹ️ No user message provided")
+                twiml = f'''<Response>
+    <Say voice="Polly.Aditi" language="en-IN">{intro} Please assist immediately.</Say>
+    <Pause length="2"/>
+    <Hangup/>
+</Response>'''
+            
+            logger.info(f"📞 Making emergency call to {to_number}...")
+            logger.debug(f"TwiML: {twiml}")
+            
+            # Make the call directly to emergency number
+            # The person answering the call will hear the TwiML
             call = self.client.calls.create(
                 twiml=twiml,
                 to=to_number,
-                from_=TWILIO_PHONE_NUMBER
+                from_=TWILIO_PHONE_NUMBER,
+                record=True,  # Record for logging purposes
+                recording_status_callback=None  # Can add URL for recording notification
             )
             
-            logger.info(f"Emergency call initiated: SID={call.sid}, Type={emergency_type}, To={to_number}")
+            logger.info(f"✅ Emergency call initiated: SID={call.sid}")
+            logger.info(f"   Type: {emergency_type}")
+            logger.info(f"   To: {to_number}")
+            logger.info(f"   User message: {bool(user_message)}")
+            logger.info(f"   gTTS audio URL: {audio_url if audio_url else 'Not used'}")
+            
             return True, call.sid
             
         except Exception as e:
             logger.error(f"Failed to make emergency call: {e}", exc_info=True)
             return False, str(e)
+    
+    def cancel_emergency_call(self, call_sid: str) -> Tuple[bool, str]:
+        """
+        Cancel an ongoing emergency call
+        
+        Args:
+            call_sid: Twilio call SID to cancel
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        if not self.client:
+            logger.error("Twilio client not initialized")
+            return False, "Twilio service not configured"
+        
+        try:
+            # Update the call to cancel it
+            call = self.client.calls(call_sid).update(status='canceled')
+            
+            logger.info(f"Emergency call canceled: SID={call_sid}")
+            return True, f"Call {call_sid} canceled successfully"
+            
+        except Exception as e:
+            logger.error(f"Failed to cancel emergency call: {e}", exc_info=True)
+            return False, str(e)
+    
+    def get_call_status(self, call_sid: str) -> Tuple[bool, str]:
+        """
+        Get the status of an emergency call
+        
+        Args:
+            call_sid: Twilio call SID to check
+            
+        Returns:
+            Tuple of (success, status)
+        """
+        if not self.client:
+            logger.error("Twilio client not initialized")
+            return False, "Twilio service not configured"
+        
+        try:
+            call = self.client.calls(call_sid).fetch()
+            
+            logger.info(f"Call status for {call_sid}: {call.status}")
+            return True, call.status
+            
+        except Exception as e:
+            logger.error(f"Failed to get call status: {e}", exc_info=True)
+            return False, str(e)
+    
+    def get_service_name(self, emergency_type: str, language: str = 'en') -> str:
+        """
+        Get the service name in the user's preferred language
+        
+        Args:
+            emergency_type: Type of emergency (police, fire, ambulance)
+            language: Language for the service name
+            
+        Returns:
+            Service name in appropriate language
+        """
+        service_names = {
+            'police': {
+                'en': 'Police',
+                'si': 'පොලිසිය',
+                'ta': 'காவல்துறை'
+            },
+            'fire': {
+                'en': 'Fire Department',
+                'si': 'ගිනි නිවීමේ සේවාව',
+                'ta': 'தீயணைப்பு துறை'
+            },
+            'ambulance': {
+                'en': 'Ambulance',
+                'si': 'ගිලන් රථ සේවාව',
+                'ta': 'ஆம்புலன்ஸ்'
+            }
+        }
+        
+        return service_names.get(emergency_type, {}).get(language, service_names.get(emergency_type, {}).get('en', emergency_type))
     
     def get_emergency_response_text(self, emergency_type: str, language: str = 'en') -> str:
         """

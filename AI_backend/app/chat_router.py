@@ -56,14 +56,22 @@ async def chat(request: Request):
             
             logger.info(f"Emergency call detected: {emergency_type}")
             
-            # Initiate the emergency call
+            # Initiate the emergency call WITH user's message
             success, call_info = twilio_service.make_emergency_call(
                 to_number=emergency_number,
-                emergency_type=emergency_type
+                emergency_type=emergency_type,
+                user_message=user_input,  # Pass user's message to be spoken in call
+                language=detected_lang
             )
             
             # Get appropriate response message
             response_message = twilio_service.get_emergency_response_text(
+                emergency_type=emergency_type,
+                language=detected_lang
+            )
+            
+            # Get service name in user's language
+            service_name = twilio_service.get_service_name(
                 emergency_type=emergency_type,
                 language=detected_lang
             )
@@ -78,13 +86,15 @@ async def chat(request: Request):
                 )
             else:
                 logger.error(f"Emergency call failed: {call_info}")
-                response_message += f"\n\n⚠️ **Note:** Automated call failed ({call_info}). Please dial {emergency_number} directly!"
+                response_message += f"\n\n⚠️ Note: Automated call failed ({call_info}). Please dial {emergency_number} directly!"
             
             return {
                 "response": response_message,
                 "language": detected_lang,
                 "emergency_call": True,
                 "emergency_type": emergency_type,
+                "service_name": service_name,
+                "emergency_number": emergency_number,
                 "call_initiated": success,
                 "call_sid": call_info if success else None
             }
@@ -193,4 +203,121 @@ async def text_to_speech(request: TTSRequest):
         )
     except Exception as e:
         logger.error(f"TTS error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
+
+# Emergency call management endpoints
+class CancelCallRequest(BaseModel):
+    call_sid: str
+
+@router.post("/cancel_call")
+async def cancel_emergency_call(request: CancelCallRequest):
+    """
+    Cancel an ongoing emergency call
+    """
+    try:
+        call_sid = request.call_sid
+        
+        if not call_sid:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Call SID is required"}
+            )
+        
+        logger.info(f"Canceling call: {call_sid}")
+        
+        success, message = twilio_service.cancel_emergency_call(call_sid)
+        
+        if success:
+            return {
+                "success": True,
+                "message": message
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": message}
+            )
+    
+    except Exception as e:
+        logger.error(f"Error canceling call: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@router.get("/call_status/{call_sid}")
+async def get_call_status(call_sid: str):
+    """
+    Get the status of an emergency call
+    """
+    try:
+        logger.info(f"Getting status for call: {call_sid}")
+        
+        success, status = twilio_service.get_call_status(call_sid)
+        
+        if success:
+            return {
+                "success": True,
+                "status": status,
+                "call_sid": call_sid
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": status}
+            )
+    
+    except Exception as e:
+        logger.error(f"Error getting call status: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+# Audio file serving endpoint
+@router.get("/audio/{filename}")
+async def serve_audio_file(filename: str):
+    """
+    Serve audio files for emergency calls
+    """
+    try:
+        # Get audio storage directory
+        audio_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'audio_storage'
+        )
+        
+        # Construct full file path
+        file_path = os.path.join(audio_dir, filename)
+        
+        # Security check: ensure file is within audio_storage directory
+        if not os.path.abspath(file_path).startswith(os.path.abspath(audio_dir)):
+            logger.warning(f"Attempted path traversal: {filename}")
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Access denied"}
+            )
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            logger.error(f"Audio file not found: {file_path}")
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Audio file not found"}
+            )
+        
+        # Serve the file
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=file_path,
+            media_type="audio/mpeg",
+            filename=filename
+        )
+    
+    except Exception as e:
+        logger.error(f"Error serving audio file: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
