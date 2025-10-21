@@ -6,6 +6,7 @@ This project is an AI-powered emergency assistant for Sri Lanka, featuring a Fas
 
 - **🤖 AI-Powered Emergency Detection**: GPT-4o-mini intelligently analyzes messages to detect real emergencies (>95% accuracy)
 - **🚨 Automated Emergency Calling**: Twilio-powered voice calls to Police, Fire, and Ambulance services with user message playback
+- **🗄️ Comprehensive Call Tracking**: MongoDB database with multi-language support and intelligent indexing for all emergency calls
 - **🎙️ User Message in Calls**: Your emergency message is spoken to authorities using gTTS (multi-language support)
 - **🧠 Context-Aware Analysis**: Distinguishes between questions and actual emergencies - no more false alarms
 - **🚀 One-Click Startup**: Automated PowerShell script handles ngrok tunneling, environment updates, and server launch
@@ -32,12 +33,14 @@ CrimeGuard_ChatBot/
 │   │   ├── langchain_utils.py       # Response formatting utilities
 │   │   ├── langgraph_utils.py       # Intelligent routing with LangGraph
 │   │   ├── db_utils.py              # MongoDB integration
-│   │   ├── audio_storage/           # Local MP3 storage for emergency messages (NEW!)
+│   │   ├── audio_storage/           # Local MP3 storage for emergency messages
 │   │   └── ngrok/
 │   │       └── ngrok.exe            # Tunneling executable for public URLs (NEW!)
 │   ├── main.py                      # FastAPI application entry point
 │   ├── requirements.txt             # Python dependencies
 │   ├── test_emergency_detection.py  # Emergency keyword detection tester
+│   ├── test_llm_emergency_detection.py # LLM-based detection tester (NEW!)
+│   ├── test_emergency_db.py         # Emergency database integration tester (NEW!)
 │   ├── test_mongo_connection.py     # Database connection tester
 │   ├── test_gtts_audio.py           # gTTS audio generation tester (NEW!)
 │   ├── test_user_message_in_call.py # User message playback tester (NEW!)
@@ -45,6 +48,8 @@ CrimeGuard_ChatBot/
 ├── start.ps1                        # Automated startup script with ngrok (NEW!)
 ├── start.bat                        # Windows batch launcher (NEW!)
 ├── STARTUP_GUIDE.md                 # Automation documentation (NEW!)
+├── EMERGENCY_DETECTION_UPGRADE.md   # LLM detection documentation (NEW!)
+├── EMERGENCY_DATABASE.md            # Database integration guide (NEW!)
 └── Frontend/                      
     ├── public/
     │   ├── favicon.png           
@@ -172,6 +177,13 @@ CrimeGuard_ChatBot/
 
 ### 💾 Data Persistence
 - **MongoDB Integration**: Stores all chat history with timestamps
+- **🗄️ Emergency Call Database (NEW!)**: Comprehensive tracking of all emergency calls
+  - **Multi-language Support**: Service names in English, Sinhala, Tamil
+  - **Intelligent Indexing**: Optimized queries by type, language, status, confidence
+  - **AI Analysis Logging**: Confidence scores and reasoning included
+  - **Status Tracking**: Real-time call status updates (initiated → completed)
+  - **Statistics API**: Analytics endpoint for emergency call patterns
+  - **See**: `EMERGENCY_DATABASE.md` for complete documentation
 - **Conversation Context**: Maintains context across sessions
 - **Message Metadata**: Tracks language, type, and response format
 - **Scalable Storage**: Cloud-ready with MongoDB Atlas support
@@ -463,6 +475,27 @@ CrimeGuard_ChatBot/
 - **Output**: `{ "status": "queued|ringing|in-progress|completed|failed|canceled" }`
 - **Purpose**: Check real-time status of emergency calls
 
+**GET `/emergency_calls`** (NEW!)
+- **Query Parameters**: 
+  - `limit` (int) - Maximum records (default: 100)
+  - `emergency_type` (string) - Filter by police/fire/ambulance
+  - `language` (string) - Filter by en/si/ta
+  - `status` (string) - Filter by call status
+  - `min_confidence` (float) - Minimum AI confidence (0.0-1.0)
+- **Output**: JSON array of emergency call records with multi-language service names
+- **Purpose**: Retrieve emergency call history with filters
+- **Example**: `/emergency_calls?emergency_type=police&language=si&limit=50`
+
+**GET `/emergency_statistics`** (NEW!)
+- **Output**: Comprehensive statistics including:
+  - Total call count
+  - Breakdown by emergency type (police/fire/ambulance)
+  - Breakdown by language (English/Sinhala/Tamil)
+  - Breakdown by call status
+  - Average/min/max AI confidence scores
+- **Purpose**: Analytics and reporting for emergency calls
+- **See**: `EMERGENCY_DATABASE.md` for detailed API documentation
+
 **POST `/tts`**
 - **Input**: `{ "text": "text to speak", "language": "en|si|ta" }`
 - **Output**: Audio stream (MP3)
@@ -745,6 +778,17 @@ Frontend: Open browser DevTools (F12) and check:
 - **Cost per Emergency Detection**: <$0.001 (GPT-4o-mini)
 
 ## 🔄 Version History
+
+### v3.1.0 (Current) - Emergency Database Integration
+- ✅ **🗄️ MongoDB Emergency Call Tracking** - Comprehensive database integration
+- ✅ **Multi-language Service Names** - Store names in English, Sinhala, Tamil
+- ✅ **Intelligent Indexing** - Optimized queries by type, language, status, confidence
+- ✅ **Status Tracking** - Real-time call status updates with duration
+- ✅ **Statistics API** - `/emergency_statistics` endpoint for analytics
+- ✅ **Filterable History** - `/emergency_calls` with multiple filter options
+- ✅ **AI Analysis Logging** - Confidence scores and reasoning stored
+- ✅ **Test Suite** - `test_emergency_db.py` for database operations
+- ✅ **Documentation** - Complete guide in `EMERGENCY_DATABASE.md`
 
 ### v3.0.0 - Automation & Enhanced Emergency Calling
 - ✅ **🤖 LLM-Based Emergency Detection** - Replaced 108 regex patterns with GPT-4o-mini intelligence
