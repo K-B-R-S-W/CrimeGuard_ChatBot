@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple
 from twilio.rest import Client
 from dotenv import load_dotenv
 import json
+from app.db_utils import save_emergency_call, update_call_status
 
 load_dotenv()
 
@@ -34,22 +35,45 @@ Available Emergency Services in Sri Lanka:
 3. Ambulance/Medical (1990 - Suwa Seriya) - For medical emergencies, injuries, accidents, health issues
 
 Analyze the following user message and determine:
-1. Is this an ACTUAL emergency requiring immediate authority contact? (not just a question about emergencies)
-2. If YES, which emergency service should be called?
-3. What is the detected language? (en for English, si for Sinhala, ta for Tamil)
+1. Is this an ACTUAL emergency requiring immediate authority contact? (not just a question or minor issue)
+2. What is the SEVERITY level?
+3. If SEVERE emergency, which emergency service should be called?
+4. What is the detected language? (en for English, si for Sinhala, ta for Tamil)
 
-IMPORTANT RULES:
-- Only detect TRUE emergencies where the user NEEDS to call authorities NOW
-- Questions like "what is the police number?" or "how to call ambulance?" are NOT emergencies
-- Only phrases like "call police", "call ambulance", "there's a fire" etc. with urgency are emergencies
-- The user must be explicitly requesting a call or reporting an urgent situation
-- Be strict: when in doubt, it's NOT an emergency
+CRITICAL SEVERITY ASSESSMENT RULES:
+
+🟢 MINOR ISSUES (DO NOT CALL):
+- Small cuts, minor bleeding, minor bruises
+- Minor burns (first-degree)
+- Common cold, mild fever, headache
+- Asking for first aid advice
+- Minor household problems
+- Questions about symptoms or treatment
+- Examples: "small cut bleeding", "minor injury", "first aid tips", "පොඩි තුවාලයක්", "සුළු තුවාලය"
+
+🔴 SEVERE EMERGENCIES (CALL IMMEDIATELY):
+- Life-threatening injuries (heavy bleeding, unconsciousness, chest pain)
+- Serious accidents (vehicle collision, fall from height, drowning)
+- Severe medical conditions (heart attack, stroke, difficulty breathing, severe burns)
+- Active crimes (robbery in progress, assault happening now, intruder present)
+- Active fires or explosions
+- Someone in immediate danger
+- Examples: "someone unconscious", "can't breathe", "chest pain", "robbery happening", "house on fire"
+
+IMPORTANT DECISION RULES:
+- If user asks "how to stop bleeding" or "what should I do" → NOT an emergency (just advice needed)
+- If user says "call ambulance" or "need help now" → Check severity first
+- Minor injuries + asking for advice → NOT an emergency
+- Severe injuries + urgent situation → IS an emergency
+- Questions about emergency services → NOT an emergency
+- When in doubt about severity → It's NOT an emergency (be conservative)
 
 User Message: "{message}"
 
 Respond ONLY with valid JSON in this exact format (no extra text):
 {{
     "is_emergency": true/false,
+    "severity": "minor/moderate/severe",
     "emergency_type": "police/fire/ambulance/none",
     "confidence": 0.0-1.0,
     "language": "en/si/ta",
@@ -126,6 +150,7 @@ class TwilioCallService:
                 
                 # Check if it's an emergency
                 is_emergency = result.get('is_emergency', False)
+                severity = result.get('severity', 'minor')
                 emergency_type = result.get('emergency_type', 'none')
                 confidence = result.get('confidence', 0.0)
                 language = result.get('language', 'en')
@@ -133,21 +158,34 @@ class TwilioCallService:
                 
                 logger.info(f"📊 Emergency Analysis:")
                 logger.info(f"   Is Emergency: {is_emergency}")
+                logger.info(f"   Severity: {severity}")
                 logger.info(f"   Type: {emergency_type}")
                 logger.info(f"   Confidence: {confidence}")
                 logger.info(f"   Language: {language}")
                 logger.info(f"   Reasoning: {reasoning}")
                 
-                # Only proceed if confidence is high enough (>= 0.7)
-                if is_emergency and confidence >= 0.7 and emergency_type in EMERGENCY_NUMBERS:
-                    logger.info(f"✅ Emergency detected: {emergency_type} (language: {language}, confidence: {confidence})")
+                # Only proceed if:
+                # 1. It's marked as emergency
+                # 2. Severity is 'severe' (not minor or moderate)
+                # 3. Confidence is high enough (>= 0.7)
+                # 4. Emergency type is valid
+                if (is_emergency and 
+                    severity == 'severe' and 
+                    confidence >= 0.7 and 
+                    emergency_type in EMERGENCY_NUMBERS):
+                    logger.info(f"✅ SEVERE Emergency detected: {emergency_type} (language: {language}, confidence: {confidence})")
                     return {
                         'type': emergency_type,
                         'number': EMERGENCY_NUMBERS[emergency_type],
                         'language': language,
                         'confidence': confidence,
+                        'severity': severity,
                         'reasoning': reasoning
                     }
+                elif is_emergency and severity in ['minor', 'moderate']:
+                    logger.info(f"ℹ️ {severity.upper()} issue detected - providing advice only, NOT calling emergency services")
+                    logger.info(f"   Reasoning: {reasoning}")
+                    return None
                 else:
                     logger.info(f"ℹ️ Not an emergency or low confidence")
                     return None
@@ -291,6 +329,32 @@ A user has requested {emergency_type} assistance."""
             logger.info(f"   User message: {bool(user_message)}")
             logger.info(f"   gTTS audio URL: {audio_url if audio_url else 'Not used'}")
             
+            # Save emergency call record to MongoDB with multi-language support
+            try:
+                # Get emergency detection result for logging
+                emergency_info = self.detect_emergency_intent(user_message) if user_message else {}
+                confidence = emergency_info.get('confidence', 0.95) if emergency_info else 0.95
+                reasoning = emergency_info.get('reasoning', f'Emergency call to {emergency_type}') if emergency_info else f'Emergency call to {emergency_type}'
+                severity = emergency_info.get('severity', 'severe') if emergency_info else 'severe'
+                
+                save_emergency_call(
+                    user_message=user_message or f"Emergency {emergency_type} call",
+                    emergency_type=emergency_type,
+                    phone_number=to_number,
+                    call_sid=call.sid,
+                    language=language,
+                    confidence=confidence,
+                    reasoning=reasoning,
+                    severity=severity,
+                    audio_url=audio_url,
+                    user_phone=user_phone,
+                    call_status='initiated'
+                )
+                logger.info(f"📊 Emergency call record saved to MongoDB")
+            except Exception as db_error:
+                logger.error(f"⚠️ Failed to save emergency call to MongoDB: {db_error}")
+                # Don't fail the call if DB save fails
+            
             return True, call.sid
             
         except Exception as e:
@@ -316,6 +380,14 @@ A user has requested {emergency_type} assistance."""
             call = self.client.calls(call_sid).update(status='canceled')
             
             logger.info(f"Emergency call canceled: SID={call_sid}")
+            
+            # Update MongoDB record
+            try:
+                update_call_status(call_sid, 'canceled')
+                logger.info(f"📊 Call status updated to 'canceled' in MongoDB")
+            except Exception as db_error:
+                logger.error(f"⚠️ Failed to update call status in MongoDB: {db_error}")
+            
             return True, f"Call {call_sid} canceled successfully"
             
         except Exception as e:
@@ -324,7 +396,7 @@ A user has requested {emergency_type} assistance."""
     
     def get_call_status(self, call_sid: str) -> Tuple[bool, str]:
         """
-        Get the status of an emergency call
+        Get the status of an emergency call and update MongoDB
         
         Args:
             call_sid: Twilio call SID to check
@@ -340,6 +412,15 @@ A user has requested {emergency_type} assistance."""
             call = self.client.calls(call_sid).fetch()
             
             logger.info(f"Call status for {call_sid}: {call.status}")
+            
+            # Update MongoDB with latest status and duration
+            try:
+                duration = int(call.duration) if call.duration else None
+                update_call_status(call_sid, call.status, duration)
+                logger.info(f"📊 Call status '{call.status}' updated in MongoDB")
+            except Exception as db_error:
+                logger.error(f"⚠️ Failed to update call status in MongoDB: {db_error}")
+            
             return True, call.status
             
         except Exception as e:

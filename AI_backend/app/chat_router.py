@@ -19,7 +19,7 @@ from AI_backend.app.langgraph_utils import (
     get_multilingual_response,
     clean_response,
 )
-from AI_backend.app.db_utils import save_chat_interaction
+from AI_backend.app.db_utils import save_chat_interaction, get_emergency_calls, get_emergency_statistics
 from AI_backend.app.twilio_service import twilio_service
 
 # Setup logging
@@ -316,6 +316,79 @@ async def serve_audio_file(filename: str):
     
     except Exception as e:
         logger.error(f"Error serving audio file: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.get("/emergency_calls")
+async def get_emergency_call_history(
+    limit: int = 100,
+    emergency_type: str = None,
+    language: str = None,
+    status: str = None,
+    min_confidence: float = None
+):
+    """
+    Get emergency call history with optional filters
+    
+    Query Parameters:
+    - limit: Maximum number of records (default: 100)
+    - emergency_type: Filter by service (police/fire/ambulance)
+    - language: Filter by language (en/si/ta)
+    - status: Filter by call status (initiated/ringing/in-progress/completed/failed/canceled)
+    - min_confidence: Minimum AI confidence threshold (0.0-1.0)
+    """
+    try:
+        logger.info(f"Retrieving emergency calls with filters: type={emergency_type}, lang={language}, status={status}, min_conf={min_confidence}")
+        
+        calls = get_emergency_calls(
+            limit=limit,
+            emergency_type=emergency_type,
+            language=language,
+            status=status,
+            min_confidence=min_confidence
+        )
+        
+        return JSONResponse(content={
+            "success": True,
+            "count": len(calls),
+            "calls": calls
+        })
+    
+    except Exception as e:
+        logger.error(f"Error retrieving emergency calls: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.get("/emergency_statistics")
+async def get_emergency_call_statistics():
+    """
+    Get comprehensive statistics about emergency calls
+    
+    Returns:
+    - Total call count
+    - Breakdown by emergency type (police/fire/ambulance)
+    - Breakdown by language (English/Sinhala/Tamil)
+    - Breakdown by call status
+    - Average/min/max confidence scores
+    """
+    try:
+        logger.info("Calculating emergency call statistics")
+        
+        stats = get_emergency_statistics()
+        
+        return JSONResponse(content={
+            "success": True,
+            "statistics": stats
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting emergency statistics: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"error": str(e)}
