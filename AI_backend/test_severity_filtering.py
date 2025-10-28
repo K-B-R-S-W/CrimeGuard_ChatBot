@@ -100,12 +100,8 @@ def test_severity_filtering():
         ),
         
         # 🟡 MODERATE - Should NOT call emergency (provide urgent advice)
-        (
-            "මගේ අතට ගැඹුරු කැපුමක් තිබෙනවා. ලේ නැවැත්තුවේ නැහැ. මොකද කරන්න ඕනේ?",
-            "moderate",
-            False,
-            "Sinhala: Deep cut, won't stop bleeding - needs advice but not life-threatening"
-        ),
+        # NOTE: Deep cut with uncontrolled bleeding was moved to SEVERE section
+        # Medical fact: Persistent bleeding from deep cut = arterial damage risk = life-threatening
         (
             "I fell and twisted my ankle badly. It's swollen and hurts a lot.",
             "moderate",
@@ -132,6 +128,12 @@ def test_severity_filtering():
         ),
         
         # 🔴 SEVERE - Should call emergency
+        (
+            "මගේ අතට ගැඹුරු කැපුමක් තිබෙනවා. ලේ නැවැත්තුවේ නැහැ. මොකද කරන්න ඕනේ?",
+            "severe",
+            True,
+            "Sinhala: Deep cut with uncontrolled bleeding - arterial damage risk, life-threatening"
+        ),
         (
             "මගේ මිතුරා හුස්ම ගන්න බැරි වෙලා ඉන්නවා. වැටිලා සිහිය නැති වෙලා",
             "severe",
@@ -240,27 +242,37 @@ def test_severity_filtering():
         result = twilio_service.detect_emergency_intent(message)
         
         if result:
-            actual_severity = result.get('severity', 'unknown')
-            actual_type = result.get('type', 'none')
-            actual_confidence = result.get('confidence', 0.0)
-            actual_reasoning = result.get('reasoning', '')
+            # Extract from emergencies array (detect_emergency_intent returns structure with array)
+            emergencies_list = result.get('emergencies', [])
             
-            print(f"\n🤖 AI Response:")
-            print(f"   Severity: {actual_severity}")
-            print(f"   Type: {actual_type}")
-            print(f"   Confidence: {actual_confidence:.2f}")
-            print(f"   Will Call: YES ✅")
-            print(f"   Reasoning: {actual_reasoning}")
-            
-            # Check if it matches expectations
-            if should_call and actual_severity == expected_severity:
-                print(f"\n✅ PASS: Correctly identified as {expected_severity} emergency")
-                passed += 1
-            elif should_call and actual_severity != expected_severity:
-                print(f"\n❌ FAIL: Expected {expected_severity}, got {actual_severity}")
-                failed += 1
-            elif not should_call:
-                print(f"\n❌ FAIL: Should NOT have called emergency for {expected_severity} issue")
+            if emergencies_list:
+                # Get first emergency from list
+                first_emergency = emergencies_list[0]
+                actual_severity = first_emergency.get('severity', 'unknown')
+                actual_type = first_emergency.get('type', 'none')
+                actual_confidence = first_emergency.get('confidence', 0.0)
+                actual_reasoning = first_emergency.get('reasoning', '')
+                
+                print(f"\n🤖 AI Response:")
+                print(f"   Severity: {actual_severity}")
+                print(f"   Type: {actual_type}")
+                print(f"   Confidence: {actual_confidence:.2f}")
+                print(f"   Will Call: YES ✅")
+                print(f"   Reasoning: {actual_reasoning}")
+                
+                # Check if it matches expectations
+                if should_call and actual_severity == expected_severity:
+                    print(f"\n✅ PASS: Correctly identified as {expected_severity} emergency")
+                    passed += 1
+                elif should_call and actual_severity != expected_severity:
+                    print(f"\n❌ FAIL: Expected {expected_severity}, got {actual_severity}")
+                    failed += 1
+                elif not should_call:
+                    print(f"\n❌ FAIL: Should NOT have called emergency for {expected_severity} issue")
+                    failed += 1
+            else:
+                print(f"\n🤖 AI Response: Emergency detected but no items in list (unexpected)")
+                print(f"\n❌ FAIL: Unexpected empty emergencies list")
                 failed += 1
         else:
             print(f"\n🤖 AI Response: No emergency detected (will provide advice only)")

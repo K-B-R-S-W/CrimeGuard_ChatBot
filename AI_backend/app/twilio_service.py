@@ -29,6 +29,8 @@ EMERGENCY_NUMBERS = {
 # Emergency detection prompt for LLM
 EMERGENCY_DETECTION_PROMPT = """You are an emergency detection AI assistant for Sri Lanka. Your job is to analyze user messages and determine if they require an emergency call to authorities.
 
+⚠️ IMPORTANT: A user message may contain MULTIPLE emergencies (e.g., "Fire AND people injured!"). Detect ALL emergencies present.
+
 Available Emergency Services in Sri Lanka:
 1. Police (119) - For crimes, threats, violence, robberies, assaults, suspicious activities
 2. Fire Department (110) - For fires, gas leaks, building collapses, explosions
@@ -37,7 +39,7 @@ Available Emergency Services in Sri Lanka:
 Analyze the following user message and determine:
 1. Is this an ACTUAL emergency requiring immediate authority contact? (not just a question or minor issue)
 2. What is the SEVERITY level?
-3. If SEVERE emergency, which emergency service should be called?
+3. Which emergency service(s) should be called? (MAY BE MULTIPLE!)
 4. What is the detected language? (en for English, si for Sinhala, ta for Tamil)
 
 CRITICAL SEVERITY ASSESSMENT RULES:
@@ -71,14 +73,49 @@ IMPORTANT DECISION RULES:
 User Message: "{message}"
 
 Respond ONLY with valid JSON in this exact format (no extra text):
+
+FOR SINGLE EMERGENCY:
 {{
     "is_emergency": true/false,
-    "severity": "minor/moderate/severe",
-    "emergency_type": "police/fire/ambulance/none",
-    "confidence": 0.0-1.0,
+    "emergencies": [
+        {{
+            "type": "police/fire/ambulance",
+            "severity": "minor/moderate/severe",
+            "confidence": 0.0-1.0,
+            "reasoning": "why this service is needed"
+        }}
+    ],
     "language": "en/si/ta",
-    "reasoning": "brief explanation"
-}}"""
+    "total_count": 1
+}}
+
+FOR MULTIPLE EMERGENCIES:
+{{
+    "is_emergency": true,
+    "emergencies": [
+        {{
+            "type": "fire",
+            "severity": "severe",
+            "confidence": 0.95,
+            "reasoning": "building on fire"
+        }},
+        {{
+            "type": "ambulance",
+            "severity": "severe",
+            "confidence": 0.90,
+            "reasoning": "people injured/trapped"
+        }}
+    ],
+    "language": "en",
+    "total_count": 2
+}}
+
+EXAMPLES:
+- "Fire in building!" → 1 emergency (fire only)
+- "Fire AND people injured!" → 2 emergencies (fire + ambulance)
+- "Car accident with injuries" → 2 emergencies (police + ambulance)
+- "Robbery in progress" → 1 emergency (police only)
+- "Someone breaking in and I'm hurt" → 2 emergencies (police + ambulance)"""
 
 
 class TwilioCallService:
@@ -110,15 +147,25 @@ class TwilioCallService:
             logger.error(f"Failed to initialize emergency detection LLM: {e}")
             self.emergency_llm = None
     
-    def detect_emergency_intent(self, message: str) -> Optional[Dict[str, str]]:
+    def detect_emergency_intent(self, message: str) -> Optional[Dict]:
         """
-        Use LLM to intelligently detect if the message requires emergency call
+        Use LLM to intelligently detect if the message requires emergency call(s)
+        
+        NOW SUPPORTS MULTIPLE EMERGENCIES (e.g., "Fire AND people injured!")
         
         Args:
             message: User's message to analyze
             
         Returns:
-            Dict with emergency type, number, and language if detected, None otherwise
+            Dict with emergencies array (may contain multiple), or None if no emergency
+            Example: {
+                'emergencies': [
+                    {'type': 'fire', 'severity': 'severe', 'confidence': 0.95},
+                    {'type': 'ambulance', 'severity': 'severe', 'confidence': 0.90}
+                ],
+                'language': 'en',
+                'total_count': 2
+            }
         """
         if not self.emergency_llm:
             logger.error("Emergency detection LLM not initialized")
@@ -150,44 +197,55 @@ class TwilioCallService:
                 
                 # Check if it's an emergency
                 is_emergency = result.get('is_emergency', False)
-                severity = result.get('severity', 'minor')
-                emergency_type = result.get('emergency_type', 'none')
-                confidence = result.get('confidence', 0.0)
+                emergencies_list = result.get('emergencies', [])
                 language = result.get('language', 'en')
-                reasoning = result.get('reasoning', '')
+                total_count = result.get('total_count', 0)
                 
-                logger.info(f"📊 Emergency Analysis:")
-                logger.info(f"   Is Emergency: {is_emergency}")
-                logger.info(f"   Severity: {severity}")
-                logger.info(f"   Type: {emergency_type}")
-                logger.info(f"   Confidence: {confidence}")
-                logger.info(f"   Language: {language}")
-                logger.info(f"   Reasoning: {reasoning}")
-                
-                # Only proceed if:
-                # 1. It's marked as emergency
-                # 2. Severity is 'severe' (not minor or moderate)
-                # 3. Confidence is high enough (>= 0.7)
-                # 4. Emergency type is valid
-                if (is_emergency and 
-                    severity == 'severe' and 
-                    confidence >= 0.7 and 
-                    emergency_type in EMERGENCY_NUMBERS):
-                    logger.info(f"✅ SEVERE Emergency detected: {emergency_type} (language: {language}, confidence: {confidence})")
-                    return {
-                        'type': emergency_type,
-                        'number': EMERGENCY_NUMBERS[emergency_type],
-                        'language': language,
-                        'confidence': confidence,
-                        'severity': severity,
-                        'reasoning': reasoning
-                    }
-                elif is_emergency and severity in ['minor', 'moderate']:
-                    logger.info(f"ℹ️ {severity.upper()} issue detected - providing advice only, NOT calling emergency services")
-                    logger.info(f"   Reasoning: {reasoning}")
+                if not is_emergency or not emergencies_list:
+                    logger.info(f"ℹ️ Not an emergency")
                     return None
+                
+                # Filter severe emergencies with high confidence
+                severe_emergencies = []
+                for emerg in emergencies_list:
+                    emerg_type = emerg.get('type', 'none')
+                    severity = emerg.get('severity', 'minor')
+                    confidence = emerg.get('confidence', 0.0)
+                    reasoning = emerg.get('reasoning', '')
+                    
+                    logger.info(f"📊 Emergency #{len(severe_emergencies) + 1}:")
+                    logger.info(f"   Type: {emerg_type}")
+                    logger.info(f"   Severity: {severity}")
+                    logger.info(f"   Confidence: {confidence}")
+                    logger.info(f"   Reasoning: {reasoning}")
+                    
+                    # Only include severe emergencies with high confidence
+                    if (severity == 'severe' and 
+                        confidence >= 0.7 and 
+                        emerg_type in EMERGENCY_NUMBERS):
+                        severe_emergencies.append({
+                            'type': emerg_type,
+                            'number': EMERGENCY_NUMBERS[emerg_type],
+                            'severity': severity,
+                            'confidence': confidence,
+                            'reasoning': reasoning
+                        })
+                        logger.info(f"   ✅ SEVERE emergency - will call {emerg_type}")
+                    elif severity in ['minor', 'moderate']:
+                        logger.info(f"   ℹ️ {severity.upper()} issue - providing advice only")
+                    else:
+                        logger.info(f"   ⚠️ Filtered out (low confidence or invalid type)")
+                
+                # Return result
+                if severe_emergencies:
+                    logger.info(f"✅ {len(severe_emergencies)} SEVERE emergencies detected (language: {language})")
+                    return {
+                        'emergencies': severe_emergencies,
+                        'language': language,
+                        'total_count': len(severe_emergencies)
+                    }
                 else:
-                    logger.info(f"ℹ️ Not an emergency or low confidence")
+                    logger.info(f"ℹ️ No severe emergencies detected")
                     return None
                     
             except json.JSONDecodeError as e:
