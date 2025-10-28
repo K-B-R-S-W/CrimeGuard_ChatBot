@@ -20,7 +20,11 @@ const translations = {
     fire: "Fire",
     breakIn: "Break-in",
     medical: "Medical",
-    police: "Police"
+    police: "Police",
+    fireGuidance: "What should I do if there's a fire?",
+    breakInGuidance: "What should I do if someone is breaking into my house?",
+    medicalGuidance: "What should I do in a medical emergency?",
+    policeGuidance: "When should I contact the police?"
   },
   si: {
     welcome: "ශ්‍රී ලංකා හදිසි ආධාර සහායකයා වෙත සාදරයෙන් පිළිගනිමු. හදිසි අවස්ථාවකදී, පොලිසිය සඳහා 119, ගිනි නිවීමේ හා ගලවා ගැනීමේ සේවාව සඳහා 110, හෝ ගිලන් රථ සේවාව (සුව සැරිය) සඳහා 1990 අමතන්න. මට ශ්‍රී ලංකාවේ විවිධ හදිසි අවස්ථා සඳහා මග පෙන්වීමක් ලබා දිය හැකිය.",
@@ -32,7 +36,11 @@ const translations = {
     fire: "ගින්න",
     breakIn: "බිඳීම",
     medical: "වෛද්‍ය",
-    police: "පොලිසිය"
+    police: "පොලිසිය",
+    fireGuidance: "ගින්නක් ඇති වුවහොත් මම කුමක් කළ යුතුද?",
+    breakInGuidance: "කවුරුහරි මගේ නිවසට කඩා වැදීමට උත්සාහ කරන්නේ නම් මම කුමක් කළ යුතුද?",
+    medicalGuidance: "වෛද්‍ය හදිසි අවස්ථාවකදී මම කුමක් කළ යුතුද?",
+    policeGuidance: "මම පොලිසියට කවදා සම්බන්ධ විය යුතුද?"
   },
   ta: {
     welcome: "இலங்கை அவசர உதவியாளருக்கு வரவேற்கிறோம். அவசரநிலையில், தயவுசெய்து தயங்காதீர்கள் - காவல்துறைக்கு 119, தீயணைப்பு & மீட்புக்கு 110, அல்லது ஆம்புலன்ஸுக்கு (சுவ செரிய) 1990ஐ அழைக்கவும். இலங்கையில் பல்வேறு அவசரநிலைகளுக்கு நான் வழிகாட்டலை வழங்க முடியும்.",
@@ -44,11 +52,24 @@ const translations = {
     fire: "தீ",
     breakIn: "உடைப்பு",
     medical: "மருத்துவம்",
-    police: "காவல்துறை"
+    police: "காவல்துறை",
+    fireGuidance: "தீ விபத்து ஏற்பட்டால் நான் என்ன செய்ய வேண்டும்?",
+    breakInGuidance: "யாரோ என் வீட்டிற்குள் புகுந்தால் நான் என்ன செய்ய வேண்டும்?",
+    medicalGuidance: "மருத்துவ அவசரநிலையில் நான் என்ன செய்ய வேண்டும்?",
+    policeGuidance: "நான் எப்போது காவல்துறையை தொடர்பு கொள்ள வேண்டும்?"
   }
 };
 
 const App: FC = () => {
+  // Generate unique session ID for this user (persistent across page refreshes)
+  const [sessionId] = useState(() => {
+    const stored = localStorage.getItem('chat_session_id');
+    if (stored) return stored;
+    const newId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    localStorage.setItem('chat_session_id', newId);
+    return newId;
+  });
+
   const [messages, setMessages] = useState<Message[]>([
     { content: "Welcome to Sri Lanka Emergency Assistant. In an emergency, please don't hesitate - call 119 for Police, 110 for Fire & Rescue, or 1990 for Ambulance (Suwa Seriya). I can provide guidance for different emergency situations in Sri Lanka.", type: 'bot' },
     { content: "ALWAYS call emergency services first before taking any advice.", type: 'bot' }
@@ -63,7 +84,10 @@ const App: FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Emergency call tracker state
+  // Conversation history for context (client-side tracking)
+  const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([]);
+
+  // Emergency call tracker state (single call)
   const [showCallTracker, setShowCallTracker] = useState(false);
   const [currentCall, setCurrentCall] = useState<{
     sid: string;
@@ -74,6 +98,17 @@ const App: FC = () => {
   } | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Multi-emergency call tracker state (2+ calls)
+  const [showMultiCallTracker, setShowMultiCallTracker] = useState(false);
+  const [activeCalls, setActiveCalls] = useState<Array<{
+    type: string;
+    call_sid: string;
+    status: string;
+    priority?: number;
+    duration: number;
+  }>>([]);
+  const multiCallTimersRef = useRef<{[key: string]: NodeJS.Timeout}>({});
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -163,6 +198,109 @@ const App: FC = () => {
     }
   };
 
+  // Cancel individual call in multi-emergency
+  const cancelMultiEmergencyCall = async (callSid: string, callType: string) => {
+    try {
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/cancel_call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_sid: callSid })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log(`Call ${callSid} canceled successfully`);
+        addMessage(`${callType.toUpperCase()} call has been canceled.`, 'bot');
+        
+        // Remove from active calls
+        setActiveCalls(prev => prev.filter(call => call.call_sid !== callSid));
+        
+        // Clear timer for this call
+        if (multiCallTimersRef.current[callSid]) {
+          clearInterval(multiCallTimersRef.current[callSid]);
+          delete multiCallTimersRef.current[callSid];
+        }
+        
+        // If no more active calls, close the multi-tracker
+        setActiveCalls(prev => {
+          if (prev.length <= 1) {
+            setShowMultiCallTracker(false);
+            // Clear all remaining timers
+            Object.values(multiCallTimersRef.current).forEach(timer => clearInterval(timer));
+            multiCallTimersRef.current = {};
+          }
+          return prev.filter(call => call.call_sid !== callSid);
+        });
+        
+      } else {
+        console.error('Failed to cancel call:', data.error);
+        addMessage(`Unable to cancel ${callType} call: ${data.error}`, 'bot');
+      }
+    } catch (error) {
+      console.error('Error canceling call:', error);
+      addMessage(`Error canceling ${callType} call.`, 'bot');
+    }
+  };
+
+  // Cancel all emergency calls at once
+  const cancelAllEmergencyCalls = async () => {
+    if (activeCalls.length === 0) return;
+
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const cancelPromises = activeCalls.map(async (call) => {
+      try {
+        const response = await fetch(`${API_URL}/cancel_call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_sid: call.call_sid })
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log(`Call ${call.call_sid} (${call.type}) canceled successfully`);
+          return { success: true, type: call.type, sid: call.call_sid };
+        } else {
+          console.error(`Failed to cancel ${call.type} call:`, data.error);
+          return { success: false, type: call.type, error: data.error };
+        }
+      } catch (error) {
+        console.error(`Error canceling ${call.type} call:`, error);
+        return { success: false, type: call.type, error: 'Network error' };
+      }
+    });
+
+    const results = await Promise.all(cancelPromises);
+    
+    // Count successes and failures
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.filter(r => !r.success).length;
+    
+    if (successCount > 0) {
+      addMessage(`${successCount} emergency call(s) have been canceled successfully.`, 'bot');
+    }
+    if (failureCount > 0) {
+      addMessage(`Failed to cancel ${failureCount} call(s). Please hang up manually if needed.`, 'bot');
+    }
+
+    // Close the multi-tracker and clear all timers
+    setShowMultiCallTracker(false);
+    Object.values(multiCallTimersRef.current).forEach(timer => clearInterval(timer));
+    multiCallTimersRef.current = {};
+    setActiveCalls([]);
+  };
+
+  // Close multi-call tracker manually
+  const closeMultiCallTracker = () => {
+    setShowMultiCallTracker(false);
+    // Clear all timers
+    Object.values(multiCallTimersRef.current).forEach(timer => clearInterval(timer));
+    multiCallTimersRef.current = {};
+    setActiveCalls([]);
+  };
+
   const toggleTheme = () => {
     setIsDarkTheme(prev => {
       const newTheme = !prev;
@@ -205,6 +343,10 @@ const App: FC = () => {
     addMessage(userMessage, 'user');
     setInputMessage('');
     
+    // Add to conversation history (client-side)
+    const updatedHistory = [...conversationHistory, { role: 'user', content: userMessage }];
+    setConversationHistory(updatedHistory);
+    
     // Detect language from the user's message
     const detectedLanguage = detectLanguage(userMessage);
     
@@ -217,7 +359,9 @@ const App: FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage,
-          language: detectedLanguage 
+          language: detectedLanguage,
+          session_id: sessionId,  // Send unique session ID
+          conversation_history: updatedHistory  // Send conversation context
         })
       });
 
@@ -231,8 +375,42 @@ const App: FC = () => {
         // Display emergency response with special styling
         addMessage(data.response, 'bot');
         
-        // If call was initiated, show call tracker popup
-        if (data.call_initiated && data.call_sid) {
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: data.response }]);
+        
+        // CHECK: Multi-emergency or single emergency?
+        if (data.multi_emergency && data.calls && data.calls.length > 1) {
+          // MULTI-EMERGENCY: Show multi-call tracker
+          console.log(`Multi-emergency detected: ${data.calls.length} calls`);
+          
+          const callsWithTimers = data.calls
+            .filter((call: any) => call.status === 'initiated' && call.call_sid)
+            .map((call: any) => ({
+              type: call.type,
+              call_sid: call.call_sid,
+              status: call.status,
+              priority: call.priority,
+              duration: 0
+            }));
+          
+          setActiveCalls(callsWithTimers);
+          setShowMultiCallTracker(true);
+          
+          // Start individual timers for each call
+          callsWithTimers.forEach((call: any) => {
+            multiCallTimersRef.current[call.call_sid] = setInterval(() => {
+              setActiveCalls(prev => 
+                prev.map(c => 
+                  c.call_sid === call.call_sid 
+                    ? {...c, duration: c.duration + 1} 
+                    : c
+                )
+              );
+            }, 1000);
+          });
+          
+        } else if (data.call_initiated && data.call_sid) {
+          // SINGLE EMERGENCY: Show single call tracker
           console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
           
           // Set current call data
@@ -258,7 +436,10 @@ const App: FC = () => {
         }
       } else {
         // Normal chat response
+        let botResponseText = '';
+        
         if (data.response.type === 'steps') {
+          botResponseText = data.response.content.join('\n');
           addMessage(
             <ul>
               {data.response.content.map((step: string, idx: number) => (
@@ -268,12 +449,18 @@ const App: FC = () => {
             'bot'
           );
         } else {
+          botResponseText = data.response.content;
           addMessage(data.response.content, 'bot');
         }
+        
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: botResponseText }]);
       }
     } catch (error) {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
-      addMessage("I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).", 'bot');
+      const errorMsg = "I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).";
+      addMessage(errorMsg, 'bot');
+      setConversationHistory(prev => [...prev, { role: 'assistant', content: errorMsg }]);
     }
   };
 
@@ -402,6 +589,10 @@ const App: FC = () => {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       addMessage(transcription, 'user');
       
+      // Add to conversation history
+      const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
+      setConversationHistory(updatedHistory);
+      
       // Step 2: Send transcription to backend for AI response (text only)
       addMessage('Assistant is analyzing your message...', 'bot', true);
       
@@ -413,6 +604,8 @@ const App: FC = () => {
         },
         body: JSON.stringify({
           message: transcription,
+          session_id: sessionId,  // Send unique session ID
+          conversation_history: updatedHistory  // Send conversation context
         }),
       });
 
@@ -430,8 +623,42 @@ const App: FC = () => {
         // Display emergency response
         addMessage(data.response, 'bot');
         
-        // If call was initiated, show call tracker popup
-        if (data.call_initiated && data.call_sid) {
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: data.response }]);
+        
+        // CHECK: Multi-emergency or single emergency?
+        if (data.multi_emergency && data.calls && data.calls.length > 1) {
+          // MULTI-EMERGENCY: Show multi-call tracker
+          console.log(`Multi-emergency detected: ${data.calls.length} calls`);
+          
+          const callsWithTimers = data.calls
+            .filter((call: any) => call.status === 'initiated' && call.call_sid)
+            .map((call: any) => ({
+              type: call.type,
+              call_sid: call.call_sid,
+              status: call.status,
+              priority: call.priority,
+              duration: 0
+            }));
+          
+          setActiveCalls(callsWithTimers);
+          setShowMultiCallTracker(true);
+          
+          // Start individual timers for each call
+          callsWithTimers.forEach((call: any) => {
+            multiCallTimersRef.current[call.call_sid] = setInterval(() => {
+              setActiveCalls(prev => 
+                prev.map(c => 
+                  c.call_sid === call.call_sid 
+                    ? {...c, duration: c.duration + 1} 
+                    : c
+                )
+              );
+            }, 1000);
+          });
+          
+        } else if (data.call_initiated && data.call_sid) {
+          // SINGLE EMERGENCY: Show single call tracker
           console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
           
           // Set current call data
@@ -499,6 +726,9 @@ const App: FC = () => {
         // Add the message to display
         addMessage(displayContent, 'bot');
         
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: responseText }]);
+        
         // Step 4: Use browser TTS to speak the response (client-side)
         const detectedLanguage = data.language || 'en';
         console.log('About to speak:', responseText.substring(0, 50), 'in language:', detectedLanguage);
@@ -514,13 +744,19 @@ const App: FC = () => {
     } catch (error) {
       console.error('Voice message error:', error);
       setMessages(prev => prev.filter(msg => !msg.isTyping));
-      addMessage('I apologize, but there was an issue processing your voice message. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).', 'bot');
+      const errorMsg = 'I apologize, but there was an issue processing your voice message. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).';
+      addMessage(errorMsg, 'bot');
+      setConversationHistory(prev => [...prev, { role: 'assistant', content: errorMsg }]);
     }
   };
 
   const quickQuestion = async (question: string) => {
     // Add the question to messages immediately
     addMessage(question, 'user');
+    
+    // Add to conversation history (client-side)
+    const updatedHistory = [...conversationHistory, { role: 'user', content: question }];
+    setConversationHistory(updatedHistory);
     
     // Detect language from the question
     const detectedLanguage = detectLanguage(question);
@@ -534,7 +770,9 @@ const App: FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: question,
-          language: detectedLanguage 
+          language: detectedLanguage,
+          session_id: sessionId,  // Send unique session ID
+          conversation_history: updatedHistory  // Send conversation context
         })
       });
 
@@ -548,12 +786,18 @@ const App: FC = () => {
         // Display emergency response
         addMessage(data.response, 'bot');
         
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: data.response }]);
+        
         if (data.call_initiated) {
           console.log(`Emergency call initiated: ${data.emergency_type} - SID: ${data.call_sid}`);
         }
       } else {
         // Normal response
+        let botResponseText = '';
+        
         if (data.response.type === 'steps') {
+          botResponseText = data.response.content.join('\n');
           addMessage(
             <ul>
               {data.response.content.map((step: string, idx: number) => (
@@ -563,12 +807,18 @@ const App: FC = () => {
             'bot'
           );
         } else {
+          botResponseText = data.response.content;
           addMessage(data.response.content, 'bot');
         }
+        
+        // Add bot response to conversation history
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: botResponseText }]);
       }
     } catch (error) {
       setMessages(prev => prev.filter(msg => !msg.isTyping));
-      addMessage("I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).", 'bot');
+      const errorMsg = "I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).";
+      addMessage(errorMsg, 'bot');
+      setConversationHistory(prev => [...prev, { role: 'assistant', content: errorMsg }]);
     }
   };
 
@@ -634,6 +884,69 @@ const App: FC = () => {
         </div>
       )}
 
+      {/* Multi-Call Tracker for Multiple Emergencies */}
+      {showMultiCallTracker && activeCalls.length > 0 && (
+        <div className="call-tracker-overlay">
+          <div className="multi-call-tracker-popup">
+            <div className="multi-call-tracker-header">
+              <h3><span className="call-tracker-icon">🚨</span> Active Emergency Calls ({activeCalls.length})</h3>
+              <button className="close-tracker-btn" onClick={closeMultiCallTracker}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            
+            <div className="multi-call-tracker-content">
+              <div className="call-items-grid">
+                {activeCalls.map((call) => (
+                  <div key={call.call_sid} className="call-item">
+                    <div className="call-item-header">
+                      <div className="call-item-icon">
+                        {call.type === 'fire' && <i className="fas fa-fire"></i>}
+                        {call.type === 'ambulance' && <i className="fas fa-ambulance"></i>}
+                        {call.type === 'police' && <i className="fas fa-shield-alt"></i>}
+                      </div>
+                    </div>
+                    
+                    <div className="call-item-info">
+                      <div className="call-item-type">{call.type.toUpperCase()}</div>
+                      {call.priority && <div className="call-item-priority">Priority {call.priority}</div>}
+                    </div>
+                    
+                    <div className="call-item-details">
+                      <div className="call-item-status">
+                        <div className="call-pulse-small">
+                          <i className="fas fa-phone-alt"></i>
+                        </div>
+                        <span>Active</span>
+                      </div>
+                    </div>
+                    
+                    <div className="call-item-timer">
+                      <i className="fas fa-clock"></i>
+                      {Math.floor(call.duration / 60)}:{(call.duration % 60).toString().padStart(2, '0')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="multi-call-actions">
+                <button 
+                  className="cancel-all-calls-btn" 
+                  onClick={cancelAllEmergencyCalls}
+                >
+                  <i className="fas fa-phone-slash"></i>
+                  Cancel All Calls
+                </button>
+              </div>
+              
+              <div className="multi-call-warning">
+                ⚠️ These calls are being placed to emergency services. Only cancel if this was a mistake.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chatbot Section - Always Open */}
       <div className="chat-container open">
           <div className="chat-header">
@@ -656,25 +969,25 @@ const App: FC = () => {
           <div className="emergency-buttons">
             <button
               className="emergency-button fire-button"
-              onClick={() => quickQuestion(translations[currentLanguage].fire)}
+              onClick={() => quickQuestion(translations[currentLanguage].fireGuidance)}
             >
               <i className="fas fa-fire"></i> {translations[currentLanguage].fire}
             </button>
             <button
               className="emergency-button break-in-button"
-              onClick={() => quickQuestion(translations[currentLanguage].breakIn)}
+              onClick={() => quickQuestion(translations[currentLanguage].breakInGuidance)}
             >
               <i className="fas fa-door-open"></i> {translations[currentLanguage].breakIn}
             </button>
             <button
               className="emergency-button medical-button"
-              onClick={() => quickQuestion(translations[currentLanguage].medical)}
+              onClick={() => quickQuestion(translations[currentLanguage].medicalGuidance)}
             >
               <i className="fas fa-heartbeat"></i> {translations[currentLanguage].medical}
             </button>
             <button
               className="emergency-button police-button"
-              onClick={() => quickQuestion(translations[currentLanguage].police)}
+              onClick={() => quickQuestion(translations[currentLanguage].policeGuidance)}
             >
               <i className="fas fa-user-shield"></i> {translations[currentLanguage].police}
             </button>
