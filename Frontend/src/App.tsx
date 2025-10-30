@@ -352,6 +352,11 @@ const App: FC = () => {
     
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
+    // Start timing
+    const startTime = performance.now();
+    console.log(`[${new Date().toISOString()}] Starting message processing...`);
+    console.log(`Language detected: ${detectedLanguage}`);
+
     try {
       const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/chat`, {
@@ -366,6 +371,12 @@ const App: FC = () => {
       });
 
       const data = await response.json();
+      
+      // Calculate response time
+      const endTime = performance.now();
+      const responseTime = (endTime - startTime).toFixed(2);
+      console.log(`[${new Date().toISOString()}] Response received in ${responseTime}ms (${(parseFloat(responseTime) / 1000).toFixed(2)}s)`);
+      console.log(`Language: ${detectedLanguage} | Emergency: ${data.emergency_call || false}`);
       
       // Remove typing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
@@ -457,6 +468,10 @@ const App: FC = () => {
         setConversationHistory(prev => [...prev, { role: 'assistant', content: botResponseText }]);
       }
     } catch (error) {
+      const endTime = performance.now();
+      const responseTime = (endTime - startTime).toFixed(2);
+      console.error(`[${new Date().toISOString()}] Error after ${responseTime}ms (${(parseFloat(responseTime) / 1000).toFixed(2)}s):`, error);
+      
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       const errorMsg = "I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).";
       addMessage(errorMsg, 'bot');
@@ -573,17 +588,29 @@ const App: FC = () => {
   };
 
   const sendVoiceMessage = async (audioBlob: Blob) => {
+    // Start timing for voice processing
+    const voiceStartTime = performance.now();
+    console.log(`[${new Date().toISOString()}] Starting voice message processing...`);
+    
     try {
       // Step 1: Transcribe audio using ElevenLabs (client-side)
       addMessage('Transcribing your speech...', 'bot', true);
       
+      const transcribeStartTime = performance.now();
       const transcription = await transcribeAudio(audioBlob);
+      const transcribeEndTime = performance.now();
+      const transcribeTime = (transcribeEndTime - transcribeStartTime).toFixed(2);
+      console.log(`[${new Date().toISOString()}] Transcription completed in ${transcribeTime}ms (${(parseFloat(transcribeTime) / 1000).toFixed(2)}s)`);
       
       if (!transcription || transcription.trim().length === 0) {
+        const failTime = (performance.now() - voiceStartTime).toFixed(2);
+        console.log(`[${new Date().toISOString()}] Transcription failed after ${failTime}ms`);
         setMessages(prev => prev.filter(msg => !msg.isTyping));
         addMessage('Could not understand the audio. Please speak clearly and try again.', 'bot');
         return;
       }
+
+      console.log(`Transcribed text: "${transcription}"`);
 
       // Remove transcription message and add the transcribed user message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
@@ -596,6 +623,7 @@ const App: FC = () => {
       // Step 2: Send transcription to backend for AI response (text only)
       addMessage('Assistant is analyzing your message...', 'bot', true);
       
+      const apiStartTime = performance.now();
       const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
@@ -614,6 +642,9 @@ const App: FC = () => {
       }
 
       const data = await response.json();
+      const apiEndTime = performance.now();
+      const apiTime = (apiEndTime - apiStartTime).toFixed(2);
+      console.log(`[${new Date().toISOString()}] API response received in ${apiTime}ms (${(parseFloat(apiTime) / 1000).toFixed(2)}s)`);
       
       // Remove processing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
@@ -683,13 +714,21 @@ const App: FC = () => {
           }, 1000);
         }
         
-        // For emergency calls, also speak the response
+        // Calculate total voice processing time for emergency
+        const totalVoiceTime = (performance.now() - voiceStartTime).toFixed(2);
+        console.log(`[${new Date().toISOString()}] Total voice emergency processing: ${totalVoiceTime}ms (${(parseFloat(totalVoiceTime) / 1000).toFixed(2)}s)`);
+        console.log(`Language: ${data.language || 'en'} | Emergency Type: ${data.emergency_type || 'unknown'}`);
+        
+        // For emergency calls, also speak the response (non-blocking)
         const detectedLanguage = data.language || 'en';
-        try {
-          await speakText(data.response, detectedLanguage);
-        } catch (err) {
-          console.error('Error during emergency speech synthesis:', err);
-        }
+        const ttsStartTime = performance.now();
+        speakText(data.response, detectedLanguage)
+          .then(() => {
+            const ttsTime = (performance.now() - ttsStartTime).toFixed(2);
+            console.log(`[${new Date().toISOString()}] Emergency TTS completed in ${ttsTime}ms (${(parseFloat(ttsTime) / 1000).toFixed(2)}s)`);
+          })
+          .catch(err => console.error('Error during emergency speech synthesis:', err));
+        
         return;
       }
       
@@ -729,20 +768,31 @@ const App: FC = () => {
         // Add bot response to conversation history
         setConversationHistory(prev => [...prev, { role: 'assistant', content: responseText }]);
         
-        // Step 4: Use browser TTS to speak the response (client-side)
-        const detectedLanguage = data.language || 'en';
-        console.log('About to speak:', responseText.substring(0, 50), 'in language:', detectedLanguage);
+        // Calculate total voice processing time
+        const totalVoiceTime = (performance.now() - voiceStartTime).toFixed(2);
+        console.log(`[${new Date().toISOString()}] Total voice processing time: ${totalVoiceTime}ms (${(parseFloat(totalVoiceTime) / 1000).toFixed(2)}s)`);
         
-        try {
-          await speakText(responseText, detectedLanguage);
-          console.log('Speech completed successfully');
-        } catch (err) {
-          console.error('Error during speech synthesis:', err);
-          // Speech failed but message is still displayed
-        }
+        // Step 4: Use browser TTS to speak the response (client-side, non-blocking)
+        const detectedLanguage = data.language || 'en';
+        console.log(`About to speak response (${responseText.length} chars) in language: ${detectedLanguage}`);
+        console.log(`Preview: "${responseText.substring(0, 50)}..."`);
+        
+        // Fire-and-forget: speak in background without blocking UI
+        const ttsStartTime = performance.now();
+        speakText(responseText, detectedLanguage)
+          .then(() => {
+            const ttsTime = (performance.now() - ttsStartTime).toFixed(2);
+            console.log(`[${new Date().toISOString()}] TTS completed in ${ttsTime}ms (${(parseFloat(ttsTime) / 1000).toFixed(2)}s)`);
+          })
+          .catch(err => {
+            console.error('Error during speech synthesis:', err);
+            // Speech failed but message is still displayed
+          });
       }
     } catch (error) {
-      console.error('Voice message error:', error);
+      const totalVoiceTime = (performance.now() - voiceStartTime).toFixed(2);
+      console.error(`[${new Date().toISOString()}] Voice message error after ${totalVoiceTime}ms (${(parseFloat(totalVoiceTime) / 1000).toFixed(2)}s):`, error);
+      
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       const errorMsg = 'I apologize, but there was an issue processing your voice message. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).';
       addMessage(errorMsg, 'bot');
@@ -763,6 +813,12 @@ const App: FC = () => {
     
     addMessage('Assistant is analyzing your situation...', 'bot', true);
 
+    // Start timing
+    const startTime = performance.now();
+    console.log(`[${new Date().toISOString()}] Quick question processing started...`);
+    console.log(`Question: "${question}"`);
+    console.log(`Language detected: ${detectedLanguage}`);
+
     try {
       const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/chat`, {
@@ -777,6 +833,12 @@ const App: FC = () => {
       });
 
       const data = await response.json();
+      
+      // Calculate response time
+      const endTime = performance.now();
+      const responseTime = (endTime - startTime).toFixed(2);
+      console.log(`[${new Date().toISOString()}] Quick question response received in ${responseTime}ms (${(parseFloat(responseTime) / 1000).toFixed(2)}s)`);
+      console.log(`Language: ${detectedLanguage} | Emergency: ${data.emergency_call || false}`);
       
       // Remove typing message
       setMessages(prev => prev.filter(msg => !msg.isTyping));
@@ -815,6 +877,10 @@ const App: FC = () => {
         setConversationHistory(prev => [...prev, { role: 'assistant', content: botResponseText }]);
       }
     } catch (error) {
+      const endTime = performance.now();
+      const responseTime = (endTime - startTime).toFixed(2);
+      console.error(`[${new Date().toISOString()}] Quick question error after ${responseTime}ms (${(parseFloat(responseTime) / 1000).toFixed(2)}s):`, error);
+      
       setMessages(prev => prev.filter(msg => !msg.isTyping));
       const errorMsg = "I apologize, but I'm experiencing technical difficulties. If this is an emergency, please call emergency services immediately (119 for Police, 110 for Fire, 1990 for Ambulance).";
       addMessage(errorMsg, 'bot');
