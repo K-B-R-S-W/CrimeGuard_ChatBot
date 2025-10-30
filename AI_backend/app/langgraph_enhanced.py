@@ -122,6 +122,57 @@ def check_emergency_keywords_tool(text: str) -> dict:
     }
 
 
+@tool
+def assess_emergency_severity(text: str) -> dict:
+    """
+    Quickly assess emergency severity to determine response length.
+    Minor emergencies = shorter response, Critical emergencies = fuller response
+    
+    Args:
+        text: Text to assess for severity
+    
+    Returns:
+        Dictionary with severity level and max steps
+    """
+    logger.info(f"🔧 TOOL: assess_emergency_severity executing")
+    
+    text_lower = text.lower()
+    
+    # Critical keywords
+    critical = ['unconscious', 'not breathing', 'severe bleeding', 'heart attack', 
+                'stroke', 'chest pain', 'heavy bleeding', 'severe burn',
+                'අවි', 'මියයන', 'හුස්ම නැති', 'තදින් ලේ', 'හෘදයාබාධ',
+                'மயக்கம்', 'மூச்சு', 'கடுமையான', 'இதய']
+    
+    # Minor keywords
+    minor = ['minor', 'small', 'little', 'slight', 'light',
+             'සුළු', 'කුඩා', 'අඩු',
+             'சிறிய', 'சிறிது', 'குறைவு']
+    
+    critical_count = sum(1 for word in critical if word in text_lower)
+    minor_count = sum(1 for word in minor if word in text_lower)
+    
+    # Determine severity
+    if critical_count > 0:
+        severity = "critical"
+        max_steps = 5  # Full response
+    elif minor_count > 0:
+        severity = "minor"
+        max_steps = 4  # Shorter response
+    else:
+        severity = "moderate"
+        max_steps = 4  # Medium response
+    
+    logger.info(f"📊 Severity: {severity} | Max steps: {max_steps}")
+    
+    return {
+        "severity": severity,
+        "max_steps": max_steps,
+        "critical_indicators": critical_count,
+        "minor_indicators": minor_count
+    }
+
+
 # ==================== ENHANCED STATE WITH TOOLS ====================
 
 class EnhancedMultilingualState(TypedDict):
@@ -149,6 +200,13 @@ Always acknowledge and use this context naturally in your responses.
 - For conversation context questions (like "what is my name?", "what did I tell you?"): Use conversation history to answer briefly, then redirect to emergency topics
 - REFUSE to answer general questions (math, trivia, jokes, casual chat, etc.)
 - If asked non-emergency general questions, politely redirect: "I'm specialized in emergency assistance only. For emergencies, I can help with Police (119), Fire (110), or Ambulance (1990). Do you need emergency help?"
+
+⚡ RESPONSE LENGTH RULES:
+- Keep responses SHORT and ACTIONABLE (maximum 5 steps)
+- For minor emergencies: Give ONLY the most critical 3-5 steps
+- Avoid repetitive explanations or lengthy introductions
+- Get to the point immediately
+- Each step should be ONE clear action
 
 Safety First: If in immediate danger, remind users to call official services:
 Police: 119 | Fire: 110 | Ambulance (Suwa Seriya): 1990
@@ -182,6 +240,13 @@ Focus: EMERGENCY ASSISTANCE ONLY.""",
 - ඔබේ නම, ඔබ කිව්ව දේ වැනි සංවාද සන්දර්භ ප්‍රශ්න සඳහා: සංවාද ඉතිහාසය භාවිතා කරන්න
 - සාමාන්‍ය ප්‍රශ්න වලට පිළිතුරු දෙන්න එපා (ගණිතය, විහිළු, සාමාන්‍ය කතාබස්)
 - හදිසි නොවන සාමාන්‍ය ප්‍රශ්නයක් නම්: "මම හදිසි ආධාර සඳහා පමණක් විශේෂඥයෙක්. පොලිසිය (119), ගිනි (110), හෝ ගිලන් රථ (1990) සඳහා උදව් කළ හැකියි. ඔබට හදිසි උදව්වක් අවශ්‍යද?"
+
+⚡ පිළිතුරු දිග නීති:
+- කෙටි සහ ක්‍රියාත්මක පිළිතුරු දෙන්න (උපරිම පියවර 5)
+- සුළු හදිසි අවස්ථා සඳහා: වඩාත් වැදගත් පියවර 3-5 ක් පමණක් දෙන්න
+- දිගු හැඳින්වීම් හෝ පුනරාවර්තන විස්තර වළකින්න
+- එක් පියවරක් = එක් පැහැදිලි ක්‍රියාවක්
+- කෙලින්ම ප්‍රධාන කාරණයට එන්න
 
 ආරක්ෂාව ප්‍රමුඛ: ක්ෂණික අනතුරක් නම්, පළමුව නිල සේවා අමතන්න:
 පොලිස්: 119 | ගිනි නිවීම: 110 | ගිලන් රථ (සුව සැරිය): 1990
@@ -217,6 +282,13 @@ Focus: EMERGENCY ASSISTANCE ONLY.""",
 - பொதுவான கேள்விகளுக்கு பதிலளிக்க வேண்டாம் (கணிதம், நகைச்சுவை, பொதுவான உரையாடல்)
 - அவசரமல்லாத பொதுவான கேள்வி என்றால்: "நான் அவசர உதவிக்கு மட்டுமே நிபுணர். காவல் (119), தீ (110), அல்லது ஆம்புலன்ஸ் (1990) உதவ முடியும். உங்களுக்கு அவசர உதவி தேவையா?"
 
+⚡ பதில் நீள விதிகள்:
+- குறுகிய மற்றும் செயல்படக்கூடிய பதில்கள் (அதிகபட்சம் 5 படிகள்)
+- சிறிய அவசரநிலைகளுக்கு: மிக முக்கியமான 3-5 படிகள் மட்டும்
+- நீண்ட அறிமுகங்கள் அல்லது மீண்டும் மீண்டும் விளக்கங்களைத் தவிர்க்கவும்
+- ஒரு படி = ஒரு தெளிவான செயல்
+- உடனடியாக முக்கிய விஷயத்திற்கு வரவும்
+
 பாதுகாப்பு முதன்மை: உடனடி ஆபத்தில் இருந்தால் உத்தியோகபூர்வ சேவைகளை அழைக்கவும்:
 காவல்: 119 | தீயணைப்பு: 110 | ஆம்புலன்ஸ் (சுவ செரிய): 1990
 
@@ -246,20 +318,23 @@ def parallel_analysis_node(state: EnhancedMultilingualState) -> EnhancedMultilin
     last_message = state["messages"][-1]
     message_text = last_message.content if hasattr(last_message, 'content') else str(last_message)
     
-    logger.info(f"🚀 PARALLEL EXECUTION: Running language detection + emergency check simultaneously")
+    logger.info(f"🚀 PARALLEL EXECUTION: Running 3 tools simultaneously")
     
     # Run tools in parallel using ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit both tasks
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit all three tasks
         lang_future = executor.submit(detect_language_tool.invoke, {"text": message_text})
         emergency_future = executor.submit(check_emergency_keywords_tool.invoke, {"text": message_text})
+        severity_future = executor.submit(assess_emergency_severity.invoke, {"text": message_text})
         
-        # Wait for both to complete
+        # Wait for all to complete
         lang_result = lang_future.result()
         emergency_result = emergency_future.result()
+        severity_result = severity_future.result()
     
     elapsed = (time.time() - start_time) * 1000  # Convert to ms
     logger.info(f"⚡ Parallel execution completed in {elapsed:.0f}ms")
+    logger.info(f"📊 Severity: {severity_result['severity']} | Recommended max steps: {severity_result['max_steps']}")
     
     return {
         **state,
@@ -268,7 +343,8 @@ def parallel_analysis_node(state: EnhancedMultilingualState) -> EnhancedMultilin
         "emergency_keywords_detected": emergency_result["has_keywords"],
         "tool_results": {
             "language_detection": lang_result,
-            "emergency_check": emergency_result
+            "emergency_check": emergency_result,
+            "severity_assessment": severity_result
         },
         "processing_time": elapsed
     }
@@ -309,18 +385,22 @@ logger.info("✅ Initialized Gemini model")
 
 def english_model_node(state: EnhancedMultilingualState) -> EnhancedMultilingualState:
     """Process with English model"""
+    start_time = time.time()
     logger.info("🤖 Processing with English model (OpenAI)")
     system_message = SystemMessage(content=SYSTEM_PROMPTS['en'])
     messages = [system_message] + list(state["messages"])
     
     try:
         response = openai_model.invoke(messages)
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(f"✅ English model response: {elapsed:.0f}ms")
         return {
             **state,
             "messages": list(state["messages"]) + [response]
         }
     except Exception as e:
-        logger.error(f"Error in English model: {e}")
+        elapsed = (time.time() - start_time) * 1000
+        logger.error(f"❌ Error in English model after {elapsed:.0f}ms: {e}")
         error_msg = AIMessage(content="Sorry, I encountered an error. Please try again.")
         return {
             **state,
@@ -330,18 +410,22 @@ def english_model_node(state: EnhancedMultilingualState) -> EnhancedMultilingual
 
 def sinhala_model_node(state: EnhancedMultilingualState) -> EnhancedMultilingualState:
     """Process with Sinhala model"""
+    start_time = time.time()
     logger.info("🤖 Processing with Sinhala model (Gemini)")
     system_message = SystemMessage(content=SYSTEM_PROMPTS['si'])
     messages = [system_message] + list(state["messages"])
     
     try:
         response = gemini_model.invoke(messages)
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(f"✅ Sinhala model response: {elapsed:.0f}ms")
         return {
             **state,
             "messages": list(state["messages"]) + [response]
         }
     except Exception as e:
-        logger.error(f"Error in Sinhala model: {e}")
+        elapsed = (time.time() - start_time) * 1000
+        logger.error(f"❌ Error in Sinhala model after {elapsed:.0f}ms: {e}")
         error_msg = AIMessage(content="සමාවන්න, දෝෂයක් ඇතිවිය. කරුණාකර නැවත උත්සාහ කරන්න.")
         return {
             **state,
@@ -351,18 +435,22 @@ def sinhala_model_node(state: EnhancedMultilingualState) -> EnhancedMultilingual
 
 def tamil_model_node(state: EnhancedMultilingualState) -> EnhancedMultilingualState:
     """Process with Tamil model"""
+    start_time = time.time()
     logger.info("🤖 Processing with Tamil model (OpenAI)")
     system_message = SystemMessage(content=SYSTEM_PROMPTS['ta'])
     messages = [system_message] + list(state["messages"])
     
     try:
         response = openai_model.invoke(messages)
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(f"✅ Tamil model response: {elapsed:.0f}ms")
         return {
             **state,
             "messages": list(state["messages"]) + [response]
         }
     except Exception as e:
-        logger.error(f"Error in Tamil model: {e}")
+        elapsed = (time.time() - start_time) * 1000
+        logger.error(f"❌ Error in Tamil model after {elapsed:.0f}ms: {e}")
         error_msg = AIMessage(content="மன்னிக்கவும், பிழை ஏற்பட்டது. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.")
         return {
             **state,
@@ -462,15 +550,48 @@ def get_enhanced_response(user_message: str, thread_id: str = "default", convers
         response_message = result["messages"][-1]
         detected_lang = result.get("detected_language", "en")
         tool_time = result.get("processing_time", 0)
+        tool_results = result.get("tool_results", {})
+        
+        # Get original response
+        original_response = response_message.content
+        
+        # Get severity assessment to determine if we should summarize
+        severity_info = tool_results.get("severity_assessment", {})
+        max_steps = severity_info.get("max_steps", 5)
+        severity = severity_info.get("severity", "moderate")
+        
+        # Summarize if needed
+        summarize_start = time.time()
+        final_response = summarize_long_response(
+            original_response, 
+            max_steps=max_steps, 
+            language=detected_lang
+        )
+        summarize_time = (time.time() - summarize_start) * 1000
+        
         total_time = (time.time() - start_time) * 1000
         
-        logger.info(f"⚡ Total processing time: {total_time:.0f}ms (tools: {tool_time:.0f}ms)")
+        # Log performance metrics
+        logger.info(f"⚡ PERFORMANCE METRICS:")
+        logger.info(f"   - Tool execution: {tool_time:.0f}ms")
+        logger.info(f"   - Summarization: {summarize_time:.0f}ms")
+        logger.info(f"   - Total time: {total_time:.0f}ms")
+        logger.info(f"   - Severity: {severity} (max {max_steps} steps)")
+        
+        # Check if response was actually shortened
+        original_lines = len([l for l in original_response.split('\n') if l.strip()])
+        final_lines = len([l for l in final_response.split('\n') if l.strip()])
+        if original_lines > final_lines:
+            logger.info(f"✂️ Response shortened: {original_lines} → {final_lines} lines")
         
         return {
-            "response": response_message.content,
+            "response": final_response,
             "language": detected_lang,
-            "tool_results": result.get("tool_results", {}),
+            "tool_results": tool_results,
             "processing_time_ms": total_time,
+            "summarization_time_ms": summarize_time,
+            "severity": severity,
+            "max_steps": max_steps,
             "parallel_execution": True
         }
         
@@ -486,3 +607,96 @@ def get_enhanced_response(user_message: str, thread_id: str = "default", convers
 def clean_response(text: str) -> str:
     """Remove Markdown bold markers"""
     return text.replace("**", "").strip()
+
+
+def summarize_long_response(response_text: str, max_steps: int = 5, language: str = "en") -> str:
+    """
+    Intelligently summarize long responses to keep only most critical steps
+    
+    Args:
+        response_text: Original response text
+        max_steps: Maximum number of steps to keep
+        language: Language of the response
+    
+    Returns:
+        Summarized response with most critical steps
+    """
+    start_time = time.time()
+    logger.info(f"✂️ Summarizing response (max {max_steps} steps, language: {language})")
+    
+    # Split by numbered list patterns
+    import re
+    
+    # Match numbered patterns like "1.", "2.", "1)", "2)", etc.
+    step_pattern = r'(?:^|\n)(\d+[\.\)])\s+'
+    steps = re.split(step_pattern, response_text)
+    
+    # Reconstruct steps (pattern captures create alternating list)
+    numbered_steps = []
+    for i in range(1, len(steps), 2):
+        if i < len(steps):
+            step_number = steps[i]
+            step_content = steps[i+1].strip()
+            numbered_steps.append((step_number, step_content))
+    
+    # If no numbered steps found, check line count
+    if len(numbered_steps) == 0:
+        lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+        if len(lines) <= max_steps + 2:  # +2 for intro/outro
+            logger.info(f"✅ Response already concise ({len(lines)} lines)")
+            return response_text
+        # Not numbered but too long - return first max_steps lines
+        logger.info(f"⚠️ Non-numbered response too long, truncating to {max_steps} lines")
+        return '\n'.join(lines[:max_steps])
+    
+    # If already within limit, return as is
+    if len(numbered_steps) <= max_steps:
+        logger.info(f"✅ Response already concise ({len(numbered_steps)} steps)")
+        return response_text
+    
+    # Need to summarize - keep most critical steps
+    logger.info(f"📝 Reducing from {len(numbered_steps)} steps to {max_steps} steps")
+    
+    # Priority keywords for each language
+    critical_keywords = {
+        'en': ['call', 'emergency', '119', '110', '1990', 'bleeding', 'pressure', 
+               'ambulance', 'police', 'fire', 'danger', 'safe', 'urgent'],
+        'si': ['අමතන්න', 'හදිසි', '119', '110', '1990', 'ලේ', 'තද', 
+               'ගිලන්', 'පොලිස්', 'ගිනි', 'අනතුර', 'ආරක්ෂිත'],
+        'ta': ['அழை', 'அவசர', '119', '110', '1990', 'இரத்த', 'அழுத்த',
+               'ஆம்புலன்ஸ்', 'காவல்', 'தீ', 'ஆபத்து', 'பாதுகாப்பு']
+    }
+    
+    keywords = critical_keywords.get(language, critical_keywords['en'])
+    
+    # Score each step by keyword importance
+    scored_steps = []
+    for step_num, step_text in numbered_steps:
+        step_lower = step_text.lower()
+        score = sum(1 for keyword in keywords if keyword in step_lower)
+        scored_steps.append((score, step_num, step_text))
+    
+    # Sort by score (descending) and take top max_steps
+    scored_steps.sort(reverse=True, key=lambda x: x[0])
+    top_steps = scored_steps[:max_steps]
+    
+    # Re-sort by original order (implied by step number)
+    top_steps.sort(key=lambda x: int(re.search(r'\d+', x[1]).group()))
+    
+    # Reconstruct response
+    intro_text = steps[0].strip() if steps[0].strip() else ""
+    
+    summarized = ""
+    if intro_text and not re.match(r'^\d+[\.\)]', intro_text):
+        # Keep brief intro if exists
+        intro_lines = intro_text.split('\n')[:1]  # Only first line
+        summarized = '\n'.join(intro_lines) + "\n\n"
+    
+    # Add selected steps with renumbering
+    for idx, (score, original_num, step_content) in enumerate(top_steps, 1):
+        summarized += f"{idx}. {step_content}\n"
+    
+    elapsed = (time.time() - start_time) * 1000
+    logger.info(f"✂️ Summarization completed in {elapsed:.0f}ms")
+    
+    return summarized.strip()
